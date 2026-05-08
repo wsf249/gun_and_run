@@ -1,0 +1,25 @@
+import Phaser from 'phaser';
+import { GAME_HEIGHT, GAME_WIDTH } from './game/constants';
+import { GameScene } from './scenes/GameScene';
+import { TitleScene } from './scenes/TitleScene';
+
+const config: Phaser.Types.Core.GameConfig = {
+  type: Phaser.AUTO,
+  parent: 'app',
+  width: GAME_WIDTH,
+  height: GAME_HEIGHT,
+  backgroundColor: '#0f0f14',
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    width: GAME_WIDTH,
+    height: GAME_HEIGHT,
+  },
+  input: {
+    keyboard: true,
+    activePointers: 3,
+  },
+  scene: [TitleScene, GameScene],
+};
+
+new Phaser.Game(config);

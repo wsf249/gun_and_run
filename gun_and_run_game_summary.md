@@ -1,13 +1,13 @@
-# Avenue Survivors — Game Concept Summary
+# Gun and Run — Game Concept Summary
 
 ## Working Title
-**Avenue Survivors**
+**Gun and Run**
 
 ---
 
 ## High-Level Pitch
 
-**Avenue Survivors** is a 2D, lane-based roguelite shooter that combines the satisfying forward-motion gameplay of mobile avenue shooters with the buildcraft and power-scaling of *Vampire Survivors*.
+**Gun and Run** is a 2D, lane-based roguelite shooter that combines the satisfying forward-motion gameplay of mobile avenue shooters with the buildcraft and power-scaling of *Vampire Survivors*.
 
 The player controls one hero moving left and right through dangerous streets, corridors, highways, and quarantine zones. The hero auto-fires while the player dodges enemies, chooses gates, shoots bonus chests, defeats bosses, and builds toward absurdly powerful weapon combinations over the course of each run.
 
@@ -278,12 +278,10 @@ Each hero has:
 
 ## Powers (Gained and upgraded through chests)
 
-- damage shield
-- Damage aura (garlic)
-- laser drone wall (damage at end of lane)
-- martydom (killing enemie has chance to drop grenade/mine)
-- sword (close range damage)
-- ??
+- damage shield (prevents all damage for one hit)
+- Damage aura (VS garlic)
+- fire wall (damage at bottom of lane)
+- martydom (killing an enemie has chance to drop mine)
 
 ### Power Upgrades (though Chests)
 
@@ -425,7 +423,7 @@ The game should avoid exploitative mechanics.
 ### Recommended Stack
 
 - TypeScript
-- Phaser 3
+- Phaser 3?
 - Vite
 - Browser-first development
 - Cursor/Codex-assisted coding
@@ -448,26 +446,3 @@ The game should avoid exploitative mechanics.
 ---
 
 
-## Beta v0.01
-
-### stack
-- browser based
-- typscript
-- Phaser 3??
-
-### MVP vibe
-- pixel art like vampire survicors
-- player characters, weapons, enemies will all be single images
-- player character moves left and right at bottom of the screen using A/D or arrows
-
-### Main menu
-- on page load show main menu
--- one row for "Pick character:", show 2 boxes, will have 2 options for MVP, soldier and Sniper
--- next row for "Pick Weapon:", show 2 boxes, will have 2 options for MVP, Assualt rifle and Laser Sniper Rifle
--- at center bottom of scree "START" button, clickable after a weapon and character have been selected
-
-### MVP game
-- highway background
-- three lane road, lanes are vertical, narrow at the top of the screen for distance perspective
-- player spawns at the bottom of the screen and can be moved left and right across the road 
-- no enemies yet
