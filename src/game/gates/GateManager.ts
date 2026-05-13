@@ -94,7 +94,7 @@ export class GateManager {
         continue;
       }
 
-      const hb = this.hitBounds(sprite.x, sprite.y);
+      const hb = this.pickupRect(sprite, sprite.x, sprite.y);
       if (Phaser.Geom.Rectangle.Overlaps(playerBounds, hb)) {
         this.applyGateEffect(g.def);
         sprite.destroy(true);
@@ -104,13 +104,17 @@ export class GateManager {
     }
   }
 
-  /** Generous capture vs lane width at gate Y. */
-  private hitBounds(centerX: number, centerY: number): Phaser.Geom.Rectangle {
+  /**
+   * Vertical extent from the gate `Container` world AABB (`getBounds`) so pickup matches
+   * the scaled art (same idea as TitleScene: avoid a synthetic rect that drifts from pixels).
+   * Width stays a lane-centered strip — narrower than full lane — so neighbor lanes do not steal.
+   */
+  private pickupRect(sprite: GateVisual, centerX: number, centerY: number): Phaser.Geom.Rectangle {
     const halfRoad = roadHalfWidthAlongPerspective(centerY);
     const laneW = (2 * halfRoad) / 3;
     const w = Math.max(124, laneW * 0.62);
-    const h = 112;
-    return new Phaser.Geom.Rectangle(centerX - w / 2, centerY - h / 2, w, h);
+    const vb = sprite.getBounds();
+    return new Phaser.Geom.Rectangle(centerX - w / 2, vb.y, w, vb.height);
   }
 
   private applyGateEffect(def: GateDefinition): void {

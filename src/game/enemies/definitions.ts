@@ -4,7 +4,7 @@ import type { EnemyDefinition, EnemyId } from './types';
 export const WALKER_BASIC: EnemyDefinition = {
   id: 'walker_basic',
   displayName: 'Walker',
-  maxHealth: 55,
+  maxHealth: 69,
   moveSpeed: 195,
   defense: 0,
   attack: 22,
@@ -21,7 +21,7 @@ export const WALKER_BASIC: EnemyDefinition = {
 export const RUNNER_SWARM: EnemyDefinition = {
   id: 'runner_swarm',
   displayName: 'Runner',
-  maxHealth: 40,
+  maxHealth: 50,
   moveSpeed: 265,
   defense: 0,
   attack: 18,
@@ -38,7 +38,7 @@ export const RUNNER_SWARM: EnemyDefinition = {
 export const BRUISER: EnemyDefinition = {
   id: 'bruiser',
   displayName: 'Bruiser',
-  maxHealth: 155,
+  maxHealth: 193,
   moveSpeed: 115,
   defense: 2,
   attack: 30,
@@ -55,7 +55,7 @@ export const BRUISER: EnemyDefinition = {
 export const WALKER_JUMPER: EnemyDefinition = {
   id: 'walker_jumper',
   displayName: 'Walker',
-  maxHealth: 55,
+  maxHealth: 69,
   moveSpeed: 195,
   defense: 0,
   attack: 22,
@@ -67,6 +67,25 @@ export const WALKER_JUMPER: EnemyDefinition = {
     strokeAlpha: 0.55,
   },
   tags: ['jumper'],
+};
+
+/** Wave 5 — lime / chartreuse; serpentine lateral weave while descending */
+export const SIDEWINDER: EnemyDefinition = {
+  id: 'sidewinder',
+  displayName: 'Sidewinder',
+  maxHealth: 72,
+  moveSpeed: 200,
+  defense: 0,
+  attack: 24,
+  visual: {
+    width: 44,
+    height: 52,
+    color: 0xbef264,
+    strokeColor: 0x3f6212,
+    strokeAlpha: 0.6,
+  },
+  lateralWeaveHz: 0.5,
+  lateralWeaveAmplitudeT: 0.28,
 };
 
 /** Boss 1 — wave 1 colors, larger */
@@ -169,6 +188,7 @@ const BY_ID: Record<EnemyId, EnemyDefinition> = {
   runner_swarm: RUNNER_SWARM,
   bruiser: BRUISER,
   walker_jumper: WALKER_JUMPER,
+  sidewinder: SIDEWINDER,
   boss_wave_1: BOSS_WAVE_1,
   boss_wave_2: BOSS_WAVE_2,
   boss_wave_3: BOSS_WAVE_3,
@@ -183,11 +203,18 @@ const TRASH_BY_WAVE: readonly EnemyId[] = [
   'runner_swarm',
   'bruiser',
   'walker_jumper',
+  'sidewinder',
 ];
 
 export function getTrashEnemyIdForWave(waveIndex1Based: number): EnemyId {
   const idx = Math.min(TRASH_BY_WAVE.length - 1, Math.max(0, waveIndex1Based - 1));
   return TRASH_BY_WAVE[idx]!;
+}
+
+/** Trash kills pay $1–$5 by wave tier; non-trash returns null. */
+export function getTrashKillDollarAmount(enemyId: EnemyId): number | null {
+  const idx = TRASH_BY_WAVE.indexOf(enemyId);
+  return idx >= 0 ? idx + 1 : null;
 }
 
 export function getBossDefinitionForMinute(minute: 1 | 2 | 3 | 4 | 5): EnemyDefinition {

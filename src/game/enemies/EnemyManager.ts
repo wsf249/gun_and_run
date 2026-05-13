@@ -10,6 +10,7 @@ import {
   roadHalfWidthAlongPerspective,
 } from '../constants';
 import { applyFlatArmor } from '../combat/damage';
+import { spawnEnemyDamageNumber } from '../fx/damageNumbers';
 import { ProjectileManager } from '../weapons/projectiles';
 import type { EnemyDefinition, EnemyId } from './types';
 import { getEnemy } from './definitions';
@@ -19,6 +20,7 @@ export const ENEMY_KILLED_EVENT = 'enemy-killed' as const;
 export const BOSS_DEFEATED_EVENT = 'boss-defeated' as const;
 
 export interface EnemyKilledPayload {
+  readonly enemyId: EnemyId;
   readonly worldX: number;
   readonly worldY: number;
   readonly reason: 'bullet' | 'power';
@@ -44,6 +46,12 @@ export interface ActiveEnemyInstance {
   lateralT: number;
   jumpCooldownUntilMs: number;
   readonly bossMinuteIndex: 1 | 2 | 3 | 4 | 5 | null;
+  /** Random phase for `lateralWeave*` defs; unused otherwise. */
+  weavePhase0: number;
+  /** Time stone: `scene.time.now` until which this enemy uses `slowMoveMult` on movement. */
+  slowUntilMs: number;
+  /** 1 = no slow; set with pulse from Time stone. */
+  slowMoveMult: number;
 }
 
 const JUMP_COOLDOWN_MS = 520;
@@ -53,9 +61,15 @@ export class EnemyManager {
   private readonly active: ActiveEnemyInstance[] = [];
   private spawnAccumMs = 0;
   private nextSpawnMs = 1100;
+  /** Multiplies bullet damage dealt to bosses after armor (meta). */
+  private bossOutgoingDamageMult = 1;
 
   constructor(private readonly scene: Phaser.Scene) {
     this.rollNextSpawnInterval();
+  }
+
+  setBossOutgoingDamageMult(mult: number): void {
+    this.bossOutgoingDamageMult = Math.max(1, mult);
   }
 
   private rollNextSpawnInterval(): void {
@@ -95,6 +109,11 @@ export class EnemyManager {
       lateralT,
       jumpCooldownUntilMs: 0,
       bossMinuteIndex,
+      weavePhase0: this.defHasWeave(def)
+        ? Phaser.Math.FloatBetween(0, Math.PI * 2)
+        : 0,
+      slowUntilMs: 0,
+      slowMoveMult: 1,
     });
   }
 
@@ -118,24 +137,30 @@ export class EnemyManager {
       }
     }
 
+    const nowMs = this.scene.time.now;
+
     for (let i = this.active.length - 1; i >= 0; i--) {
       const e = this.active[i];
       const y = e.sprite.y;
+      const slowM = nowMs < e.slowUntilMs ? e.slowMoveMult : 1;
 
       if (y < chaseY) {
-        e.sprite.y += e.def.moveSpeed * dt;
+        e.sprite.y += e.def.moveSpeed * slowM * dt;
         const cx = GAME_WIDTH / 2;
         const half = roadHalfWidthAlongPerspective(e.sprite.y);
         const pad = 22;
-        e.sprite.x = Phaser.Math.Clamp(
-          cx + e.lateralT * half,
-          cx - half + pad,
-          cx + half - pad,
-        );
+        let targetX = cx + e.lateralT * half;
+        if (this.defHasWeave(e.def)) {
+          const hz = e.def.lateralWeaveHz ?? 0;
+          const ampT = e.def.lateralWeaveAmplitudeT ?? 0;
+          const tSec = this.scene.time.now / 1000;
+          targetX += Math.sin(e.weavePhase0 + Math.PI * 2 * hz * tSec) * ampT * half;
+        }
+        e.sprite.x = Phaser.Math.Clamp(targetX, cx - half + pad, cx + half - pad);
       } else {
-        const maxStep = e.def.moveSpeed * dt;
+        const maxStep = e.def.moveSpeed * slowM * dt;
         const toPx = opts.playerX - e.sprite.x;
-        const maxStepX = ENEMY_CHASE_LATERAL_SPEED * dt;
+        const maxStepX = ENEMY_CHASE_LATERAL_SPEED * slowM * dt;
         e.sprite.x += Phaser.Math.Clamp(toPx, -maxStepX, maxStepX);
 
         const rowGap = opts.playerY - e.sprite.y;
@@ -154,8 +179,17 @@ export class EnemyManager {
       }
 
       e.sprite.setScale(enemyPerspectiveScale(e.sprite.y));
-      this.syncLateralTFromSprite(e);
+      const chaseYAfter = enemyChaseThresholdY();
+      if (!(this.defHasWeave(e.def) && e.sprite.y < chaseYAfter)) {
+        this.syncLateralTFromSprite(e);
+      }
     }
+  }
+
+  private defHasWeave(def: EnemyDefinition): boolean {
+    const hz = def.lateralWeaveHz;
+    const amp = def.lateralWeaveAmplitudeT;
+    return hz != null && amp != null && hz > 0 && amp > 0;
   }
 
   private syncLateralTFromSprite(e: ActiveEnemyInstance): void {
@@ -181,6 +215,7 @@ export class EnemyManager {
     if (e === undefined) return;
     const isBoss = e.bossMinuteIndex !== null;
     const payload: EnemyKilledPayload = {
+      enemyId: e.def.id,
       worldX: e.sprite.x,
       worldY: e.sprite.y,
       reason,
@@ -227,7 +262,16 @@ export class EnemyManager {
 
         pierceHit.add(e.sprite);
         const dealt = applyFlatArmor(damage, e.def.defense);
-        e.hp -= dealt;
+        const hpLoss =
+          e.bossMinuteIndex !== null
+            ? Math.max(1, Math.floor(dealt * this.bossOutgoingDamageMult))
+            : dealt;
+        e.hp -= hpLoss;
+
+        if (hpLoss > 0) {
+          const s = e.sprite;
+          spawnEnemyDamageNumber(this.scene, s.x, s.y - s.height * 0.25, hpLoss, 'gun');
+        }
 
         let pierceRemRaw = bullet.getData('pierceRemaining');
         let pierceRem =
@@ -238,7 +282,7 @@ export class EnemyManager {
           projectiles.removeBulletAt(i);
         }
 
-        if (dealt > 0 && this.defHasJumper(e.def) && now >= e.jumpCooldownUntilMs) {
+        if (hpLoss > 0 && this.defHasJumper(e.def) && now >= e.jumpCooldownUntilMs) {
           this.tryJumperLaneShift(e, now);
         }
 

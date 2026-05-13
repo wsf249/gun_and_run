@@ -6,6 +6,7 @@ export type EnemyId =
   | 'runner_swarm'
   | 'bruiser'
   | 'walker_jumper'
+  | 'sidewinder'
   | 'boss_wave_1'
   | 'boss_wave_2'
   | 'boss_wave_3'
@@ -41,4 +42,10 @@ export interface EnemyDefinition {
   readonly tags?: readonly EnemyTag[];
   /** Boss milestone index (1–5); only on boss defs. */
   readonly bossMinuteIndex?: 1 | 2 | 3 | 4 | 5;
+  /**
+   * When both set, descent motion adds lateral sine offset (see `EnemyManager`).
+   * `lateralT` stays the lane center until chase; amplitude is in half-road units (0–1 scale of half-width).
+   */
+  readonly lateralWeaveHz?: number;
+  readonly lateralWeaveAmplitudeT?: number;
 }

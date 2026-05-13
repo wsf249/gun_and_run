@@ -10,12 +10,22 @@ export const STARTER_CHARACTER: CharacterDefinition = {
   critChance: 0.05,
 };
 
+export const RANGER_CHARACTER: CharacterDefinition = {
+  id: 'ranger',
+  displayName: 'Ranger',
+  maxHealth: 90,
+  moveSpeed: 500,
+  defense: 7,
+  critChance: 0.1,
+};
+
 const BY_ID: Record<CharacterId, CharacterDefinition> = {
   starter: STARTER_CHARACTER,
+  ranger: RANGER_CHARACTER,
 };
 
 /** Menu / spawn order when adding heroes. */
-export const ALL_CHARACTER_IDS: readonly CharacterId[] = ['starter'];
+export const ALL_CHARACTER_IDS: readonly CharacterId[] = ['starter', 'ranger'];
 
 export const DEFAULT_CHARACTER_ID: CharacterId = 'starter';
 

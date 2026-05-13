@@ -1,7 +1,7 @@
 /**
  * Extend when adding playable heroes.
  */
-export type CharacterId = 'starter';
+export type CharacterId = 'starter' | 'ranger';
 
 /**
  * Data-only hero profile. Offense scaling lives on `WeaponDefinition`; characters carry survival, mobility, crit chance, and flat armor.

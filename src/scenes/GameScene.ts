@@ -19,8 +19,8 @@ import { applyFlatArmor } from '../game/combat/damage';
 import {
   ALL_CHARACTER_IDS,
   DEFAULT_CHARACTER_ID,
-  getCharacter,
 } from '../game/characters/definitions';
+import { addPlayerShape, getMuzzleOffsetFromPlayer } from '../game/characters/playerShape';
 import type { CharacterDefinition, CharacterId } from '../game/characters/types';
 import {
   getBossDefinitionForMinute,
@@ -28,11 +28,13 @@ import {
 } from '../game/enemies/definitions';
 import {
   BOSS_DEFEATED_EVENT,
+  ENEMY_KILLED_EVENT,
   EnemyManager,
   type ActiveEnemyInstance,
   type BossDefeatedPayload,
+  type EnemyKilledPayload,
 } from '../game/enemies/EnemyManager';
-import { ALL_WEAPON_IDS, DEFAULT_WEAPON_ID, getWeapon } from '../game/weapons/definitions';
+import { ALL_WEAPON_IDS, DEFAULT_WEAPON_ID } from '../game/weapons/definitions';
 import type { WeaponDefinition, WeaponId } from '../game/weapons/types';
 import { ProjectileManager } from '../game/weapons/projectiles';
 import { WeaponRuntime } from '../game/weapons/runtime';
@@ -42,6 +44,18 @@ import { getPower, formatPowerUpgradeHint } from '../game/powers/definitions';
 import { PowerRuntime } from '../game/powers/PowerRuntime';
 import type { PowerId } from '../game/powers/types';
 import type { EnemyId } from '../game/enemies/types';
+import {
+  getBossOutgoingDamageMult,
+  getChestSpawnDelayMult,
+  getDollarIncomeMult,
+  getEffectiveCharacter,
+  getEffectiveWeapon,
+  getGatePotencyMult,
+  getInitialPowerRerolls,
+  getRevivesPerRun,
+} from '../game/meta/effective';
+import { getKillRewardDollars } from '../game/meta/rewards';
+import { loadMeta, saveMeta, type MetaState } from '../game/meta/save';
 
 const SCENE_KEY = 'Game';
 
@@ -62,10 +76,17 @@ const POWERS_HUD_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 const PAUSE_BTN_W = 92;
 const PAUSE_BTN_H = 34;
 const POWERS_HUD_TOP_Y = 12 + PAUSE_BTN_H + 10;
+
+/** Bottom-right vertical HP bar (numeric HP stays top-right in `statsHud`). */
+const HP_BAR_MARGIN = 20;
+const HP_BAR_W = 16;
+const HP_BAR_H = 200;
+const HP_BAR_INSET = 2;
 const PAUSE_OVERLAY_DEPTH = 350;
 const END_OVERLAY_DEPTH = 380;
 
 const RUN_MS_PER_MINUTE = 60_000;
+const REVIVE_INVULN_MS = 2200;
 
 function formatRunTime(elapsedMs: number): string {
   const totalSec = Math.floor(elapsedMs / 1000);
@@ -88,7 +109,7 @@ function isWeaponId(value: string): value is WeaponId {
 }
 
 export class GameScene extends Phaser.Scene {
-  private player!: Phaser.GameObjects.Rectangle;
+  private player!: Phaser.GameObjects.Shape;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keyA!: Phaser.Input.Keyboard.Key;
   private keyD!: Phaser.Input.Keyboard.Key;
@@ -104,6 +125,7 @@ export class GameScene extends Phaser.Scene {
   private playerHp = 0;
   private playerInvulnUntil = 0;
   private statsHud!: Phaser.GameObjects.Text;
+  private healthBarFill!: Phaser.GameObjects.Rectangle;
   private runElapsedMs = 0;
   /** Run-level; multiply `CharacterDefinition.defense` for display and mitigation. */
   private armorMultiplier = 1;
@@ -130,6 +152,11 @@ export class GameScene extends Phaser.Scene {
   private minuteGateArmed: boolean[] = [];
   private bossSpawnQueue: number[] = [];
   private endGameUiNodes: Phaser.GameObjects.GameObject[] = [];
+
+  private metaState!: MetaState;
+  private revivesRemaining = 0;
+  private gatePotencyMult = 1;
+  private readonly boundEnemyKilled = (p: EnemyKilledPayload) => this.onEnemyKilledReward(p);
 
   private readonly boundBossDefeated = (p: BossDefeatedPayload) => this.onBossDefeated(p);
   private powersHud!: Phaser.GameObjects.Text;
@@ -162,17 +189,13 @@ export class GameScene extends Phaser.Scene {
     this.drawLaneMarkers();
 
     const cx = GAME_WIDTH / 2;
-    this.player = this.add.rectangle(
-      cx,
-      PLAYER_Y,
-      PLAYER_HALF_WIDTH * 2,
-      48,
-      0x2dd4bf,
-    );
-    this.player.setStrokeStyle(2, 0x115e59, 0.9);
-    this.player.setDepth(10);
+    this.player = addPlayerShape(this, this.selectedCharacterId, cx, PLAYER_Y);
 
-    this.equippedCharacter = getCharacter(this.selectedCharacterId);
+    this.metaState = loadMeta();
+    this.revivesRemaining = getRevivesPerRun(this.metaState);
+    this.gatePotencyMult = getGatePotencyMult(this.metaState);
+
+    this.equippedCharacter = getEffectiveCharacter(this.selectedCharacterId, this.metaState);
     this.playerHp = this.equippedCharacter.maxHealth;
     this.armorMultiplier = 1;
     this.armorFlatBonus = 0;
@@ -189,21 +212,30 @@ export class GameScene extends Phaser.Scene {
     this.clearEndGameUi();
 
     this.projectileManager = new ProjectileManager(this);
-    this.equippedWeapon = getWeapon(this.selectedWeaponId);
+    this.equippedWeapon = getEffectiveWeapon(this.selectedWeaponId, this.metaState);
     this.weaponRuntime = new WeaponRuntime(this.equippedWeapon, this.projectileManager);
     this.enemyManager = new EnemyManager(this);
-    this.powerRuntime = new PowerRuntime(this, this.enemyManager);
-    this.chestManager = new ChestManager(this, {
-      onChestDestroyed: () => this.handleChestDestroyed(),
+    this.enemyManager.setBossOutgoingDamageMult(getBossOutgoingDamageMult(this.metaState));
+    this.powerRuntime = new PowerRuntime(this, this.enemyManager, {
+      initialRerolls: getInitialPowerRerolls(this.metaState),
+      bossOutgoingDamageMult: getBossOutgoingDamageMult(this.metaState),
     });
+    this.chestManager = new ChestManager(
+      this,
+      {
+        onChestDestroyed: () => this.handleChestDestroyed(),
+      },
+      { spawnDelayMult: getChestSpawnDelayMult(this.metaState) },
+    );
     this.gateManager = new GateManager(this, {
       applyHealMaxPercent: (percent) => {
-        const add = Math.floor(this.equippedCharacter.maxHealth * (percent / 100));
+        const scaled = percent * this.gatePotencyMult;
+        const add = Math.floor(this.equippedCharacter.maxHealth * (scaled / 100));
         this.playerHp = Math.min(this.equippedCharacter.maxHealth, this.playerHp + add);
         this.refreshStatsHud();
       },
       applyWeaponFireRatePercent: (percent) => {
-        this.weaponRuntime.applyFireRateBonusPercent(percent);
+        this.weaponRuntime.applyFireRateBonusPercent(percent * this.gatePotencyMult);
         this.refreshStatsHud();
       },
       applyWeaponDamagePercent: (percent) => {
@@ -243,6 +275,18 @@ export class GameScene extends Phaser.Scene {
       .text(GAME_WIDTH - 24, 20, '', HUD_STYLE)
       .setOrigin(1, 0)
       .setDepth(200);
+
+    const hpBarX = GAME_WIDTH - HP_BAR_MARGIN;
+    const hpBarY = GAME_HEIGHT - HP_BAR_MARGIN;
+    this.add
+      .rectangle(hpBarX, hpBarY, HP_BAR_W, HP_BAR_H, 0x0f172a, 0.92)
+      .setStrokeStyle(2, 0x475569, 1)
+      .setOrigin(1, 1)
+      .setDepth(200);
+    this.healthBarFill = this.add
+      .rectangle(hpBarX - HP_BAR_INSET, hpBarY - HP_BAR_INSET, HP_BAR_W - HP_BAR_INSET * 2, 1, 0x34d399, 1)
+      .setOrigin(1, 1)
+      .setDepth(201);
     const pauseCx = 24 + PAUSE_BTN_W / 2;
     const pauseCy = 12 + PAUSE_BTN_H / 2;
     this.pauseBtnBg = this.add
@@ -277,9 +321,11 @@ export class GameScene extends Phaser.Scene {
     this.syncHudChrome();
 
     this.events.on(BOSS_DEFEATED_EVENT, this.boundBossDefeated);
+    this.events.on(ENEMY_KILLED_EVENT, this.boundEnemyKilled);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(BOSS_DEFEATED_EVENT, this.boundBossDefeated);
+      this.events.off(ENEMY_KILLED_EVENT, this.boundEnemyKilled);
       this.clearEndGameUi();
       this.clearDraftUi();
       this.clearPauseUi();
@@ -350,11 +396,15 @@ export class GameScene extends Phaser.Scene {
       dx += 1;
     }
 
-    if (dx !== 0) {
+    if (dx !== 0 && !this.powerRuntime.isKamahahaMovementLocked()) {
       this.player.x += dx * this.equippedCharacter.moveSpeed * this.speedMultiplier * dt;
     }
 
-    if (this.pointerActive && this.input.activePointer.isDown) {
+    if (
+      this.pointerActive &&
+      this.input.activePointer.isDown &&
+      !this.powerRuntime.isKamahahaMovementLocked()
+    ) {
       const wx = this.input.activePointer.worldX;
       const maxStep = this.equippedCharacter.moveSpeed * this.speedMultiplier * dt;
       const dxPtr = wx - this.player.x;
@@ -366,8 +416,9 @@ export class GameScene extends Phaser.Scene {
     this.gateManager.update(delta, this.player.getBounds());
     this.chestManager.update(delta);
 
-    const muzzleX = this.player.x + this.equippedWeapon.muzzle.offsetX;
-    const muzzleY = this.player.y + this.equippedWeapon.muzzle.offsetY;
+    const muzzle = getMuzzleOffsetFromPlayer(this.selectedCharacterId, this.equippedWeapon.muzzle);
+    const muzzleX = this.player.x + muzzle.offsetX;
+    const muzzleY = this.player.y + muzzle.offsetY;
 
     this.enemyManager.update(delta, {
       spawnEnemyId: this.resolveTrashSpawnEnemyId(),
@@ -381,7 +432,9 @@ export class GameScene extends Phaser.Scene {
       0,
       1,
     );
-    this.weaponRuntime.update(delta, muzzleX, muzzleY, aimTarget, critChance);
+    if (!this.powerRuntime.isKamahahaWeaponSuppressed()) {
+      this.weaponRuntime.update(delta, muzzleX, muzzleY, aimTarget, critChance);
+    }
     this.projectileManager.update(dt);
     this.chestManager.tryDamageFromBullets(this.projectileManager);
     this.enemyManager.tryDamageFromBullets(this.projectileManager);
@@ -439,11 +492,13 @@ export class GameScene extends Phaser.Scene {
     const critDmgLabel = cm % 1 === 0 ? String(cm) : cm.toFixed(2);
     const armor = this.effectiveArmor();
     const speed = Math.round(this.equippedCharacter.moveSpeed * this.speedMultiplier);
+    const hpHud = (Math.floor(this.playerHp * 10) / 10).toFixed(1);
 
     this.statsHud.setText(
       [
+        `$${this.metaState.dollars}`,
         timer,
-        `HP ${this.playerHp} / ${this.equippedCharacter.maxHealth}`,
+        `HP ${hpHud} / ${this.equippedCharacter.maxHealth}`,
         `Max Gun DPS ${maxDps}`,
         `Crit Chance ${critPct}%`,
         `Crit Damage x${critDmgLabel}`,
@@ -451,6 +506,19 @@ export class GameScene extends Phaser.Scene {
         `Speed ${speed}`,
       ].join('\n'),
     );
+
+    const maxHp = Math.max(1, this.equippedCharacter.maxHealth);
+    const ratio = Phaser.Math.Clamp(this.playerHp / maxHp, 0, 1);
+    const innerW = HP_BAR_W - HP_BAR_INSET * 2;
+    const innerH = HP_BAR_H - HP_BAR_INSET * 2;
+    const fillH = innerH * ratio;
+    this.healthBarFill.setSize(innerW, Math.max(0, fillH));
+    this.healthBarFill.setPosition(
+      GAME_WIDTH - HP_BAR_MARGIN - HP_BAR_INSET,
+      GAME_HEIGHT - HP_BAR_MARGIN - HP_BAR_INSET,
+    );
+    const fillColor = ratio < 0.28 ? 0xf87171 : ratio < 0.55 ? 0xfbbf24 : 0x34d399;
+    this.healthBarFill.setFillStyle(fillColor, 1);
   }
 
   private applyEnemyTouchDamage(): void {
@@ -466,11 +534,22 @@ export class GameScene extends Phaser.Scene {
           break;
         }
         const mitigated = applyFlatArmor(e.def.attack, this.effectiveArmor());
+        const prevHp = this.playerHp;
         this.playerHp = Math.max(0, this.playerHp - mitigated);
+        if (this.playerHp < prevHp) {
+          this.powerRuntime.applyThornsRetaliation(pb);
+        }
         this.playerInvulnUntil = this.time.now + PLAYER_HIT_INVULN_MS;
         this.refreshStatsHud();
         if (this.playerHp <= 0 && this.runOutcome === 'playing') {
-          this.enterDeathState();
+          if (this.revivesRemaining > 0) {
+            this.revivesRemaining -= 1;
+            this.playerHp = this.equippedCharacter.maxHealth;
+            this.playerInvulnUntil = this.time.now + REVIVE_INVULN_MS;
+            this.refreshStatsHud();
+          } else {
+            this.enterDeathState();
+          }
         }
         break;
       }
@@ -675,7 +754,7 @@ export class GameScene extends Phaser.Scene {
   private resolveTrashSpawnEnemyId(): EnemyId | null {
     if (this.runOutcome !== 'playing') return null;
     if (this.enemyManager.hasLivingBoss()) return null;
-    const waveIndex = Math.min(this.bossesDefeated + 1, 4);
+    const waveIndex = Math.min(this.bossesDefeated + 1, 5);
     return getTrashEnemyIdForWave(waveIndex);
   }
 
@@ -701,6 +780,27 @@ export class GameScene extends Phaser.Scene {
     const def = getBossDefinitionForMinute(next as 1 | 2 | 3 | 4 | 5);
     this.enemyManager.spawnEnemy(def);
     this.bossSpawnQueue.shift();
+  }
+
+  private onEnemyKilledReward(_p: EnemyKilledPayload): void {
+    if (this.runOutcome !== 'playing') {
+      return;
+    }
+    const base = getKillRewardDollars(_p.enemyId);
+    const income = getDollarIncomeMult(this.metaState);
+    const gain = Math.max(1, Math.floor(base * income));
+    this.metaState.dollars += gain;
+    saveMeta(this.metaState);
+
+    const feastHeal = this.powerRuntime.computeSoulFeastHeal(
+      _p,
+      this.equippedCharacter.maxHealth,
+    );
+    if (feastHeal > 0) {
+      this.playerHp = Math.min(this.equippedCharacter.maxHealth, this.playerHp + feastHeal);
+    }
+
+    this.refreshStatsHud();
   }
 
   private onBossDefeated(payload: BossDefeatedPayload): void {

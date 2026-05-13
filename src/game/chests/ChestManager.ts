@@ -38,12 +38,18 @@ export interface ChestManagerOptions {
 export class ChestManager {
   private readonly active: ActiveChest[] = [];
   private nextSpawnInMs = 0;
+  private readonly spawnDelayMult: number;
 
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly options: ChestManagerOptions,
+    opts?: { spawnDelayMult?: number },
   ) {
-    this.nextSpawnInMs = FIRST_CHEST_DELAY_MS;
+    this.spawnDelayMult = opts?.spawnDelayMult ?? 1;
+    this.nextSpawnInMs = Math.max(
+      SPAWN_DELAY_MIN_MS,
+      Math.floor(FIRST_CHEST_DELAY_MS * this.spawnDelayMult),
+    );
   }
 
   destroy(): void {
@@ -154,10 +160,7 @@ export class ChestManager {
   }
 
   private rollNextSpawnDelay(): void {
-    this.nextSpawnInMs = sampleNormalPositive(
-      SPAWN_DELAY_MEAN_MS,
-      SPAWN_DELAY_STD_MS,
-      SPAWN_DELAY_MIN_MS,
-    );
+    const raw = sampleNormalPositive(SPAWN_DELAY_MEAN_MS, SPAWN_DELAY_STD_MS, SPAWN_DELAY_MIN_MS);
+    this.nextSpawnInMs = Math.max(SPAWN_DELAY_MIN_MS, Math.floor(raw * this.spawnDelayMult));
   }
 }
