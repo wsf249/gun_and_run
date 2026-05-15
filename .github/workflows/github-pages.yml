@@ -1,4 +1,5 @@
 # Build Vite output and publish to GitHub Pages (Settings → Pages → GitHub Actions).
+# Aligns with GitHub’s Pages starters: configure-pages + upload-pages-artifact + deploy-pages.
 name: Deploy GitHub Pages
 
 on:
@@ -13,29 +14,38 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # Let an in-flight deploy finish (GitHub’s own starters use false).
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+        id: pages
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
+      - name: Build
+        run: npm run build -- --base "${{ steps.pages.outputs.base_path }}"
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: dist
+          # v4 excludes dotfiles by default; keep `.nojekyll` in the artifact.
+          include-hidden-files: true
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

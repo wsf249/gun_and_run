@@ -33,6 +33,22 @@ The important code fix is Vite’s **`base` URL**: assets must not assume the si
 - **Workflow never appears**: Ensure the file path is exactly `.github/workflows/github-pages.yml` on the default branch.
 - **First-time Pages with Actions**: GitHub may ask you to approve **workflow permissions** once (repo **Settings** → **Actions** → **General** → read/write for workflows if prompted).
 
+### Deploy job: `Failed to create deployment (status: 404)` / `HttpError: Not Found`
+
+The **build** job can succeed while **deploy** fails with a 404 from `actions/deploy-pages`. Common causes:
+
+1. **Private repository on a free personal account**  
+   GitHub Pages for **private** repos generally needs **GitHub Pro** (or Team/Enterprise). On **Free**, make the repository **public** (repo **Settings** → **General** → **Danger Zone** → **Change repository visibility**), then re-run the workflow.
+
+2. **Pages source not set to GitHub Actions**  
+   **Settings** → **Pages** → **Build and deployment** → **Source** → **GitHub Actions** (not “Deploy from a branch”).
+
+3. **Workflow token permissions**  
+   **Settings** → **Actions** → **General** → **Workflow permissions** → try **Read and write permissions** → **Save**, then **Re-run all jobs** on the failed workflow.
+
+4. **Organization policy**  
+   If the repo is under an **org**, an owner may need to allow GitHub Pages / Actions for that org.
+
 ---
 
 ## Local check before pushing
