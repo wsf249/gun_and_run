@@ -25,6 +25,7 @@ import type { CharacterDefinition, CharacterId } from '../game/characters/types'
 import {
   getBossDefinitionForMinute,
   getTrashEnemyIdForWave,
+  getTrashSpawnFrequencyMult,
 } from '../game/enemies/definitions';
 import {
   BOSS_DEFEATED_EVENT,
@@ -47,14 +48,14 @@ import type { EnemyId } from '../game/enemies/types';
 import {
   getBossOutgoingDamageMult,
   getChestSpawnDelayMult,
-  getDollarIncomeMult,
+  getSoulIncomeMult,
   getEffectiveCharacter,
   getEffectiveWeapon,
   getGatePotencyMult,
   getInitialPowerRerolls,
   getRevivesPerRun,
 } from '../game/meta/effective';
-import { getKillRewardDollars } from '../game/meta/rewards';
+import { getKillRewardSouls } from '../game/meta/rewards';
 import { loadMeta, saveMeta, type MetaState } from '../game/meta/save';
 
 const SCENE_KEY = 'Game';
@@ -145,7 +146,7 @@ export class GameScene extends Phaser.Scene {
   private runFrozen = false;
   private gamePaused = false;
   /** Progression timer — advances only while actively playing (see `update`). */
-  private runOutcome: 'playing' | 'won' | 'lost' = 'playing';
+  private runOutcome: 'playing' | 'won' | 'lost' | 'awaiting_revive' = 'playing';
   /** Defeated boss count; equals last `bossMinuteIndex` beaten (1–4); boss 5 triggers win instead. */
   private bossesDefeated = 0;
   /** Index 1–5: minute gate crossed once per run. */
@@ -420,8 +421,10 @@ export class GameScene extends Phaser.Scene {
     const muzzleX = this.player.x + muzzle.offsetX;
     const muzzleY = this.player.y + muzzle.offsetY;
 
+    const trashWave = Math.min(this.bossesDefeated + 1, 5);
     this.enemyManager.update(delta, {
       spawnEnemyId: this.resolveTrashSpawnEnemyId(),
+      trashSpawnFrequencyMult: getTrashSpawnFrequencyMult(trashWave),
       playerX: this.player.x,
       playerY: this.player.y,
     });
@@ -496,7 +499,7 @@ export class GameScene extends Phaser.Scene {
 
     this.statsHud.setText(
       [
-        `$${this.metaState.dollars}`,
+        `Souls ${this.metaState.souls}`,
         timer,
         `HP ${hpHud} / ${this.equippedCharacter.maxHealth}`,
         `Max Gun DPS ${maxDps}`,
@@ -543,10 +546,7 @@ export class GameScene extends Phaser.Scene {
         this.refreshStatsHud();
         if (this.playerHp <= 0 && this.runOutcome === 'playing') {
           if (this.revivesRemaining > 0) {
-            this.revivesRemaining -= 1;
-            this.playerHp = this.equippedCharacter.maxHealth;
-            this.playerInvulnUntil = this.time.now + REVIVE_INVULN_MS;
-            this.refreshStatsHud();
+            this.enterReviveOfferState();
           } else {
             this.enterDeathState();
           }
@@ -786,10 +786,10 @@ export class GameScene extends Phaser.Scene {
     if (this.runOutcome !== 'playing') {
       return;
     }
-    const base = getKillRewardDollars(_p.enemyId);
-    const income = getDollarIncomeMult(this.metaState);
+    const base = getKillRewardSouls(_p.enemyId);
+    const income = getSoulIncomeMult(this.metaState);
     const gain = Math.max(1, Math.floor(base * income));
-    this.metaState.dollars += gain;
+    this.metaState.souls += gain;
     saveMeta(this.metaState);
 
     const feastHeal = this.powerRuntime.computeSoulFeastHeal(
@@ -825,6 +825,39 @@ export class GameScene extends Phaser.Scene {
     this.tryDrainBossSpawnQueue();
   }
 
+  private enterReviveOfferState(): void {
+    this.runOutcome = 'awaiting_revive';
+    this.pointerActive = false;
+    this.gamePaused = false;
+    this.runFrozen = false;
+    this.clearPauseUi();
+    this.clearDraftUi();
+    this.showReviveOfferOverlay();
+    this.syncHudChrome();
+    this.refreshStatsHud();
+  }
+
+  private performReviveFromOverlay(): void {
+    if (this.runOutcome !== 'awaiting_revive' || this.revivesRemaining <= 0) {
+      return;
+    }
+    this.revivesRemaining -= 1;
+    this.playerHp = this.equippedCharacter.maxHealth;
+    this.playerInvulnUntil = this.time.now + REVIVE_INVULN_MS;
+    this.runOutcome = 'playing';
+    this.clearEndGameUi();
+    this.syncHudChrome();
+    this.refreshStatsHud();
+  }
+
+  private forfeitReviveAndGoToTitle(): void {
+    if (this.runOutcome !== 'awaiting_revive') {
+      return;
+    }
+    this.clearEndGameUi();
+    this.goToTitle();
+  }
+
   private enterDeathState(): void {
     this.runOutcome = 'lost';
     this.pointerActive = false;
@@ -848,6 +881,71 @@ export class GameScene extends Phaser.Scene {
       n.destroy();
     }
     this.endGameUiNodes.length = 0;
+  }
+
+  private showReviveOfferOverlay(): void {
+    this.clearEndGameUi();
+    const depth = END_OVERLAY_DEPTH;
+    const bg = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x1a0a0c, 0.88);
+    bg.setStrokeStyle(0, 0x000000, 0);
+    bg.setDepth(depth);
+    this.endGameUiNodes.push(bg);
+
+    const title = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.36, 'You died', {
+        fontFamily: 'system-ui, Segoe UI, sans-serif',
+        fontSize: '44px',
+        color: '#fecaca',
+      })
+      .setOrigin(0.5, 0.5)
+      .setDepth(depth + 1);
+    this.endGameUiNodes.push(title);
+
+    const sub = this.add
+      .text(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT * 0.36 + 56,
+        `Spend one revive to continue (${this.revivesRemaining} available).`,
+        {
+          fontFamily: 'system-ui, Segoe UI, sans-serif',
+          fontSize: '20px',
+          color: '#94a3b8',
+          align: 'center',
+          wordWrap: { width: GAME_WIDTH - 80 },
+        },
+      )
+      .setOrigin(0.5, 0.5)
+      .setDepth(depth + 1);
+    this.endGameUiNodes.push(sub);
+
+    const reviveBtn = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT * 0.54, 320, 56, 0x14532d, 1);
+    reviveBtn.setStrokeStyle(2, 0x4ade80, 1);
+    reviveBtn.setInteractive({ useHandCursor: true });
+    reviveBtn.setDepth(depth + 1);
+    reviveBtn.on('pointerup', () => this.performReviveFromOverlay());
+    this.endGameUiNodes.push(reviveBtn);
+
+    const reviveLabel = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.54, 'Revive', {
+        fontFamily: 'system-ui, Segoe UI, sans-serif',
+        fontSize: '22px',
+        color: '#f8fafc',
+      })
+      .setOrigin(0.5, 0.5)
+      .setDepth(depth + 2);
+    this.endGameUiNodes.push(reviveLabel);
+
+    const forfeit = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.62, 'Back to menu', {
+        fontFamily: 'system-ui, Segoe UI, sans-serif',
+        fontSize: '18px',
+        color: '#64748b',
+      })
+      .setOrigin(0.5, 0.5)
+      .setDepth(depth + 1)
+      .setInteractive({ useHandCursor: true });
+    forfeit.on('pointerup', () => this.forfeitReviveAndGoToTitle());
+    this.endGameUiNodes.push(forfeit);
   }
 
   private showDeathOverlay(): void {

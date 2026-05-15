@@ -2,7 +2,7 @@
 
 Technical summary of **player-facing numbers** as implemented in code. When these drift from gameplay, fix the source files (listed per section), not this document alone.
 
-**Sources:** [`src/game/characters/definitions.ts`](src/game/characters/definitions.ts), [`src/game/enemies/definitions.ts`](src/game/enemies/definitions.ts), [`src/game/weapons/definitions.ts`](src/game/weapons/definitions.ts), [`src/game/powers/definitions.ts`](src/game/powers/definitions.ts), [`src/game/gates/definitions.ts`](src/game/gates/definitions.ts), [`src/game/meta/effective.ts`](src/game/meta/effective.ts), [`src/game/meta/purchases.ts`](src/game/meta/purchases.ts), [`src/game/meta/rewards.ts`](src/game/meta/rewards.ts).
+**Sources:** [`src/game/characters/definitions.ts`](src/game/characters/definitions.ts), [`src/game/enemies/definitions.ts`](src/game/enemies/definitions.ts), [`src/game/enemies/EnemyManager.ts`](src/game/enemies/EnemyManager.ts), [`src/game/weapons/definitions.ts`](src/game/weapons/definitions.ts), [`src/game/powers/definitions.ts`](src/game/powers/definitions.ts), [`src/game/gates/definitions.ts`](src/game/gates/definitions.ts), [`src/game/meta/caps.ts`](src/game/meta/caps.ts), [`src/game/meta/effective.ts`](src/game/meta/effective.ts), [`src/game/meta/purchases.ts`](src/game/meta/purchases.ts), [`src/game/meta/rewards.ts`](src/game/meta/rewards.ts), [`src/game/meta/save.ts`](src/game/meta/save.ts).
 
 ---
 
@@ -25,15 +25,17 @@ Data from `EnemyDefinition` ([`enemies/types.ts`](src/game/enemies/types.ts)). *
 
 **Trash wave order** (post-boss wave index 1-based maps to `getTrashEnemyIdForWave`): 1 Walker → 2 Runner → 3 Bruiser → 4 Walker (jumper) → 5 Sidewinder (then stays on Sidewinder for higher indices).
 
-**Kill dollars** ([`rewards.ts`](src/game/meta/rewards.ts)): trash tiers pay **$1–$5** by position in that wave list (Walker $1 … Sidewinder $5); bosses pay **`10 × bossMinuteIndex`**.
+**Trash spawn pacing** ([`EnemyManager.ts`](src/game/enemies/EnemyManager.ts), mult from [`getTrashSpawnFrequencyMult`](src/game/enemies/definitions.ts)): between-spawn delay is `Uniform(0.72, 1.35) s / mult`. **`mult` is per-wave** (see `TRASH_SPAWN_FREQ_MULT_BY_WAVE` in definitions): wave 3 (bruiser) is **slower** than a linear ramp would be; waves **4–5** (jumper / sidewinder) are **faster**, so pressure rises every wave in the design table below.
+
+**Kill Souls** ([`rewards.ts`](src/game/meta/rewards.ts)): trash tiers pay **1–5** Souls by position in that wave list (Walker 1 … Sidewinder 5); bosses pay **`10 × bossMinuteIndex`**.
 
 | ID | Role | maxHealth | moveSpeed (px/s) | defense | attack | tags | bossMinute | lateral weave |
 |----|------|-----------|------------------|---------|--------|------|------------|----------------|
-| `walker_basic` | Wave 1 grunt | 69 | 195 | 0 | 22 | — | — | — |
-| `runner_swarm` | Wave 2 grunt | 50 | 265 | 0 | 18 | — | — | — |
+| `walker_basic` | Wave 1 grunt | 67 | 195 | 0 | 22 | — | — | — |
+| `runner_swarm` | Wave 2 grunt | 62 | 265 | 0 | 18 | — | — | — |
 | `bruiser` | Wave 3 grunt | 193 | 115 | 2 | 30 | — | — | — |
-| `walker_jumper` | Wave 4 grunt | 69 | 195 | 0 | 22 | `jumper` | — | — |
-| `sidewinder` | Wave 5+ grunt | 72 | 200 | 0 | 24 | — | — | 0.5 Hz, amp **0.28** (half-road units) |
+| `walker_jumper` | Wave 4 grunt | 82 | 195 | 0 | 22 | `jumper` | — | — |
+| `sidewinder` | Wave 5+ grunt | 90 | 200 | 0 | 24 | — | — | 0.5 Hz, amp **0.28** (half-road units) |
 | `boss_wave_1` | Minute 1 boss | 580 | 175 | 0 | 38 | `boss` | 1 | — |
 | `boss_wave_2` | Minute 2 boss | 480 | 220 | 0 | 34 | `boss` | 2 | — |
 | `boss_wave_3` | Minute 3 boss | 980 | 95 | 3 | 42 | `boss` | 3 | — |
@@ -41,6 +43,22 @@ Data from `EnemyDefinition` ([`enemies/types.ts`](src/game/enemies/types.ts)). *
 | `boss_wave_5` | Minute 5 / final | 1400 | 265 | 4 | 48 | `boss`, `jumper` | 5 | — |
 
 **Behavior flags (not extra numbers):** `jumper` — sidesteps on bullet hits (cooldown); `boss` — pauses trash spawns while alive, uses boss damage mult from meta, excluded from some power procs. **Visual** columns (`visual.width` / `height` / colors) are presentation-only — see definitions file.
+
+### Trash pressure vs baseline gun (design reference)
+
+Rough **steady-state** comparison for **no store**, **Soldier** (`critChance` 0.05), **Assault Rifle** (6.2 rps, damage 14, `critMultiplier` 2): expected HP removed per bullet vs each trash type uses `applyFlatArmor` after a crit/non-crit roll (same as gameplay). **Gun HP/s** = `6.2 × E[HP loss per hit]`. **Spawn HP/s** = `(mult / meanSpawnSec) × maxHealth` with `meanSpawnSec = 1.035` (midpoint of 0.72–1.35 s). **Ratio (gun)** = spawn HP/s ÷ gun HP/s. Trash **maxHealth** and per-wave **`mult`** are tuned together so **Spawn ÷ (gun + est. power)** rises **every wave**, with **wave 3 (bruiser) pinned near 1.0** in that combined column; **ratio (gun)** also trends upward across waves with these rows.
+
+**Is ~1.7–1.9 enough once powers scale?** In isolation the gun ratio is meant to force **powers, pierce, aim, and boss loot** into the solution. The **Est. power HP/s** column uses the synthetic build below (only aura + firewall + lightning); real runs add **Kamahaha**, **Martyrdom**, **Thorns**, **gates**, and **meta** on top, so live clearing power is usually higher. **Spawn ÷ (gun + est. power)** shows the same spawn sink vs a **combined** sustained baseline — values **below ~1** mean this toy model says sustained damage keeps up on average (still ignores burst, positioning, and missed shots).
+
+**Est. power HP/s (method):** From [`powers/definitions.ts`](src/game/powers/definitions.ts) only **`damage_aura`**, **`fire_wall`**, and **`lightning`**. Each tick/strike uses `applyFlatArmor(powerDamage, trash defense)` like [`PowerRuntime`](src/game/powers/PowerRuntime.ts). **Synthetic draft path** (illustrative, not every seed): wave 1 **no** offensive picks; wave 2 **aura L1**; wave 3 **aura L1 + firewall L1**; wave 4 **aura L2 + firewall L1 + lightning L1**; wave 5 **aura L3 + firewall L2 + lightning L2**. **Crowd factors** (enemies assumed hit each aura tick / firewall tick): wave 2 **1.3**, wave 3 **1.8** aura / **2.0** firewall, wave 4 **2.2** / **2.5**, wave 5 **2.6** / **3.0**. Lightning: sustained `(1 + chainExtraTargets) × dealtPerHop / strikeIntervalMs × 1000` with all hops landing on trash. *Omitted from the estimate:* Kamahaha beam, Martyrdom mines, Thorns, shield, Time stone (indirect), soul feast.
+
+| Wave | Trash type | `mult` | Spawn HP/s | Gun HP/s | Est. power HP/s | Ratio (gun) | Spawn ÷ (gun + est. power) |
+|------|------------|--------|--------------|----------|-----------------|-------------|----------------------------|
+| 1 | Walker | 1.00 | 64.7 | 91.1 | 0.0 | 0.71 | 0.71 |
+| 2 | Runner | 1.58 | 94.7 | 91.1 | 20.2 | 1.04 | 0.85 |
+| 3 | Bruiser | 0.72 | 134.3 | 78.7 | 50.7 | 1.71 | 1.04 |
+| 4 | Walker (jumper) | 2.50 | 198.1 | 91.1 | 86.0 | 2.17 | 1.12 |
+| 5 | Sidewinder | 3.30 | 287.0 | 91.1 | 133.0 | 3.15 | 1.28 |
 
 ---
 
@@ -224,37 +242,37 @@ Each gate: **`descendSpeed`** (px/s downward), **`labelText`**, and **`effect`**
 
 ## Store (meta upgrades)
 
-Currency: **dollars** (kill rewards × `getDollarIncomeMult`, see [`src/game/meta/rewards.ts`](src/game/meta/rewards.ts)). Purchase cost: **`floor(base × 1.48^currentPurchaseCount)`** per stat (`UPGRADE_COST_GROWTH`, [`effective.ts`](src/game/meta/effective.ts)).
+Currency: **Souls** in `MetaState.souls` (kill rewards × `getSoulIncomeMult`, see [`src/game/meta/rewards.ts`](src/game/meta/rewards.ts)). **Cost** to raise a track from level `L → L+1`: **`floor(base × 1.48^L)`** (`UPGRADE_COST_GROWTH`, bases in [`purchases.ts`](src/game/meta/purchases.ts)). **Respec:** lowering a level refunds the Souls spent for that level (same formula at index `L−1`). **UI:** [`StoreScene`](src/scenes/StoreScene.ts) — ◀ / ▶ per row, filled slot squares up to each track’s cap.
 
-Purchases are **per character**, **per weapon**, or **global**. Effective run stats use **`getEffectiveCharacter`** / **`getEffectiveWeapon`** plus global helpers (`getBossOutgoingDamageMult`, `getInitialPowerRerolls`, `getRevivesPerRun`, gate potency, chest delay mult, dollar mult).
+Allocations are **per character**, **per weapon**, or **global**. Effective run stats use **`getEffectiveCharacter`** / **`getEffectiveWeapon`** plus global helpers (`getBossOutgoingDamageMult`, `getInitialPowerRerolls`, `getRevivesPerRun`, gate potency, chest delay mult, soul income mult). Level caps are centralized in [`caps.ts`](src/game/meta/caps.ts) (`META_CAP`).
 
 ### Character (per `CharacterId`)
 
-Each row: **effect per purchase** · **hard cap** (soft cap 500 where noted).
-
-| Track | Base cost constant | Per purchase | Cap |
-|-------|-------------------|--------------|-----|
-| maxHealthPurchases | 12 | **+5** max HP | soft 500 |
-| moveSpeedPurchases | 14 | **+6** move speed | soft 500 |
-| defensePurchases | 18 | **+1** defense | soft 500 |
-| critChancePurchases | 25 | **+0.01** crit chance | **20** purchases; total crit chance clamped to **≤ 0.5** |
+| Track | Base cost constant | Per level | Cap |
+|-------|-------------------|-----------|-----|
+| maxHealthPurchases | 12 | **+6** max HP | **10** |
+| moveSpeedPurchases | 14 | **+6** move speed | **10** |
+| defensePurchases | 18 | **+1** defense | **10** |
+| critChancePurchases | 25 | **+0.02** crit chance | **10**; total crit chance clamped to **≤ 0.5** |
 
 ### Weapon (per `WeaponId`)
 
-| Track | Base cost constant | Per purchase | Cap |
-|-------|-------------------|--------------|-----|
-| damagePurchases | 20 | **+1** `projectileDamage` | soft 500 |
-| fireRatePurchases | 22 | **+3%** fire tempo (automatic: multiply RoF; burst: shorten burst/cooldown ms) | soft 500 |
-| critMultPurchases | 24 | **+0.05** `critMultiplier` | soft 500 |
-| piercePurchases | 45 | **+1** pierce | **2** total extra purchases |
+| Track | Base cost constant | Per level | Cap |
+|-------|-------------------|-----------|-----|
+| damagePurchases | 20 | **+1** `projectileDamage` | **10** |
+| fireRatePurchases | 22 | **+4.5%** fire tempo (automatic: multiply RoF; burst: shorten burst/cooldown ms) | **10** |
+| critMultPurchases | 24 | **+0.06** `critMultiplier` | **10** |
+| piercePurchases | 45 | **+1** pierce | **2** |
 
 ### Global
 
-| Track | Base cost constant | Per purchase | Cap |
-|-------|-------------------|--------------|-----|
-| rerollPurchases | 30 | **+1** power reroll at run start (adds to base 3) | **25** |
-| revivePurchases | 55 | **+1** revive per run | **5** |
-| bossDamagePurchases | 35 | outgoing bullet + power damage vs bosses **×1.05** (compounds) | **25** |
-| gatePotencyPurchases | 28 | gate potency mult **+0.04** on multiplier (`1 + 0.04 × n`); affects **max-HP heal %** and **weapon fire-rate %** gates only | **20** |
-| dollarIncomePurchases | 40 | kill dollar reward mult **+0.05** (`1 + 0.05 × n`) | **15** |
-| chestCadencePurchases | 26 | chest spawn delay mult **−0.04** (`max(0.52, 1 - 0.04 × n)`) | **12** |
+| Track | Base cost constant | Per level | Cap |
+|-------|-------------------|-----------|-----|
+| rerollPurchases | 30 | **+1** power reroll at run start (adds to base 3) | **5** |
+| revivePurchases | 55 | **+1** revive per run | **2** |
+| bossDamagePurchases | 35 | outgoing bullet + power damage vs bosses **×1.057** per level (compounds) | **10** |
+| gatePotencyPurchases | 28 | gate potency mult **+0.07** (`1 + 0.07 × n`); affects **max-HP heal %** and **weapon fire-rate %** gates only | **10** |
+| soulIncomePurchases | 40 | kill Soul reward mult **+0.05** (`1 + 0.05 × n`) | **10** |
+| chestCadencePurchases | 26 | chest spawn delay mult **−0.048** (`max(0.52, 1 - 0.048 × n)`) | **10** |
+
+Persisted meta: [`save.ts`](src/game/meta/save.ts) — schema **v2**; migrates legacy **`dollars` → `souls`** and **`dollarIncomePurchases` → `soulIncomePurchases`** on load.

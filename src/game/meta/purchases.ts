@@ -1,8 +1,7 @@
 import type { CharacterId } from '../characters/types';
 import type { WeaponId } from '../weapons/types';
-import {
-  upgradeExpoCost,
-} from './effective';
+import { META_CAP } from './caps';
+import { upgradeExpoCost } from './effective';
 import {
   ensureCharacterBucket,
   ensureWeaponBucket,
@@ -11,18 +10,6 @@ import {
   type MetaState,
   type WeaponMetaPurchases,
 } from './save';
-
-const MAX_CRIT_CHANCE_PURCHASES = 20;
-const MAX_PIERCE_PURCHASES = 2;
-const MAX_REROLL_PURCHASES = 25;
-const MAX_REVIVE_PURCHASES = 5;
-const MAX_BOSS_DAMAGE_PURCHASES = 25;
-const MAX_GATE_POTENCY_PURCHASES = 20;
-const MAX_DOLLAR_INCOME_PURCHASES = 15;
-const MAX_CHEST_CADENCE_PURCHASES = 12;
-/** Matches clamp in `save.ts` normalizeMeta for non-crit character tracks. */
-const MAX_CHARACTER_SOFT_PURCHASES = 500;
-const MAX_WEAPON_SOFT_PURCHASES = 500;
 
 const P_CHAR_HP = 12;
 const P_CHAR_SPD = 14;
@@ -55,7 +42,7 @@ export type GlobalUpgradeStat = keyof Pick<
   | 'revivePurchases'
   | 'bossDamagePurchases'
   | 'gatePotencyPurchases'
-  | 'dollarIncomePurchases'
+  | 'soulIncomePurchases'
   | 'chestCadencePurchases'
 >;
 
@@ -66,7 +53,6 @@ export function formatMetaUpgradeLevel(level: number, cap: number | null): strin
   return `Lv ${level} / ${cap}`;
 }
 
-/** Short tally for compact HUD (e.g. `3/20` or `0` when no cap). */
 export function formatUpgradeTally(level: number, cap: number | null): string {
   if (cap === null) {
     return String(level);
@@ -94,35 +80,31 @@ export function getGlobalUpgradeLevel(meta: MetaState, stat: GlobalUpgradeStat):
   return meta.global[stat];
 }
 
-/** Display cap for store / menu; `null` = no max label (soft caps may still exist in save). */
-export function getCharacterUpgradeCap(stat: CharacterUpgradeStat): number | null {
-  if (stat === 'critChancePurchases') {
-    return MAX_CRIT_CHANCE_PURCHASES;
-  }
-  return MAX_CHARACTER_SOFT_PURCHASES;
+export function getCharacterUpgradeCap(_stat: CharacterUpgradeStat): number | null {
+  return META_CAP.characterStat;
 }
 
 export function getWeaponUpgradeCap(stat: WeaponUpgradeStat): number | null {
   if (stat === 'piercePurchases') {
-    return MAX_PIERCE_PURCHASES;
+    return META_CAP.pierce;
   }
-  return MAX_WEAPON_SOFT_PURCHASES;
+  return META_CAP.weaponDamageFireCrit;
 }
 
 export function getGlobalUpgradeCap(stat: GlobalUpgradeStat): number | null {
   switch (stat) {
     case 'rerollPurchases':
-      return MAX_REROLL_PURCHASES;
+      return META_CAP.reroll;
     case 'revivePurchases':
-      return MAX_REVIVE_PURCHASES;
+      return META_CAP.revive;
     case 'bossDamagePurchases':
-      return MAX_BOSS_DAMAGE_PURCHASES;
+      return META_CAP.boss;
     case 'gatePotencyPurchases':
-      return MAX_GATE_POTENCY_PURCHASES;
-    case 'dollarIncomePurchases':
-      return MAX_DOLLAR_INCOME_PURCHASES;
+      return META_CAP.gate;
+    case 'soulIncomePurchases':
+      return META_CAP.soulIncome;
     case 'chestCadencePurchases':
-      return MAX_CHEST_CADENCE_PURCHASES;
+      return META_CAP.chest;
     default:
       return null;
   }
@@ -181,7 +163,7 @@ export function globalUpgradeCost(stat: GlobalUpgradeStat, meta: MetaState): num
       return upgradeExpoCost(P_G_BOSS, n);
     case 'gatePotencyPurchases':
       return upgradeExpoCost(P_G_GATE, n);
-    case 'dollarIncomePurchases':
+    case 'soulIncomePurchases':
       return upgradeExpoCost(P_G_INCOME, n);
     case 'chestCadencePurchases':
       return upgradeExpoCost(P_G_CHEST, n);
@@ -190,100 +172,216 @@ export function globalUpgradeCost(stat: GlobalUpgradeStat, meta: MetaState): num
   }
 }
 
-export function canBuyCharacter(
+function characterRefundForTopLevel(
   stat: CharacterUpgradeStat,
   meta: MetaState,
   characterId: CharacterId,
-): boolean {
-  const p = ensureCharacterBucket(meta, characterId);
-  if (stat === 'critChancePurchases' && p.critChancePurchases >= MAX_CRIT_CHANCE_PURCHASES) {
-    return false;
+): number {
+  const L = getCharacterUpgradeLevel(meta, characterId, stat);
+  if (L <= 0) return 0;
+  const n = L - 1;
+  switch (stat) {
+    case 'maxHealthPurchases':
+      return upgradeExpoCost(P_CHAR_HP, n);
+    case 'moveSpeedPurchases':
+      return upgradeExpoCost(P_CHAR_SPD, n);
+    case 'defensePurchases':
+      return upgradeExpoCost(P_CHAR_DEF, n);
+    case 'critChancePurchases':
+      return upgradeExpoCost(P_CHAR_CRIT, n);
+    default:
+      return 0;
   }
-  if (stat === 'maxHealthPurchases' && p.maxHealthPurchases >= MAX_CHARACTER_SOFT_PURCHASES) {
-    return false;
-  }
-  if (stat === 'moveSpeedPurchases' && p.moveSpeedPurchases >= MAX_CHARACTER_SOFT_PURCHASES) {
-    return false;
-  }
-  if (stat === 'defensePurchases' && p.defensePurchases >= MAX_CHARACTER_SOFT_PURCHASES) {
-    return false;
-  }
-  const cost = characterUpgradeCost(stat, meta, characterId);
-  return cost > 0 && meta.dollars >= cost;
 }
 
-export function canBuyWeapon(
+function weaponRefundForTopLevel(
   stat: WeaponUpgradeStat,
   meta: MetaState,
   weaponId: WeaponId,
-): boolean {
-  const p = ensureWeaponBucket(meta, weaponId);
-  if (stat === 'piercePurchases' && p.piercePurchases >= MAX_PIERCE_PURCHASES) {
-    return false;
+): number {
+  const L = getWeaponUpgradeLevel(meta, weaponId, stat);
+  if (L <= 0) return 0;
+  const n = L - 1;
+  switch (stat) {
+    case 'damagePurchases':
+      return upgradeExpoCost(P_W_DMG, n);
+    case 'fireRatePurchases':
+      return upgradeExpoCost(P_W_ROF, n);
+    case 'critMultPurchases':
+      return upgradeExpoCost(P_W_CRIT, n);
+    case 'piercePurchases':
+      return upgradeExpoCost(P_W_PIERCE, n);
+    default:
+      return 0;
   }
-  if (stat === 'damagePurchases' && p.damagePurchases >= MAX_WEAPON_SOFT_PURCHASES) {
-    return false;
-  }
-  if (stat === 'fireRatePurchases' && p.fireRatePurchases >= MAX_WEAPON_SOFT_PURCHASES) {
-    return false;
-  }
-  if (stat === 'critMultPurchases' && p.critMultPurchases >= MAX_WEAPON_SOFT_PURCHASES) {
-    return false;
-  }
-  const cost = weaponUpgradeCost(stat, meta, weaponId);
-  return cost > 0 && meta.dollars >= cost;
 }
 
-export function canBuyGlobal(stat: GlobalUpgradeStat, meta: MetaState): boolean {
+function globalRefundForTopLevel(stat: GlobalUpgradeStat, meta: MetaState): number {
+  const L = getGlobalUpgradeLevel(meta, stat);
+  if (L <= 0) return 0;
+  const n = L - 1;
+  switch (stat) {
+    case 'rerollPurchases':
+      return upgradeExpoCost(P_G_REROLL, n);
+    case 'revivePurchases':
+      return upgradeExpoCost(P_G_REVIVE, n);
+    case 'bossDamagePurchases':
+      return upgradeExpoCost(P_G_BOSS, n);
+    case 'gatePotencyPurchases':
+      return upgradeExpoCost(P_G_GATE, n);
+    case 'soulIncomePurchases':
+      return upgradeExpoCost(P_G_INCOME, n);
+    case 'chestCadencePurchases':
+      return upgradeExpoCost(P_G_CHEST, n);
+    default:
+      return 0;
+  }
+}
+
+function characterAtCap(meta: MetaState, characterId: CharacterId, stat: CharacterUpgradeStat): boolean {
+  const p = ensureCharacterBucket(meta, characterId);
+  const cap = META_CAP.characterStat;
+  return p[stat] >= cap;
+}
+
+function weaponAtCap(meta: MetaState, weaponId: WeaponId, stat: WeaponUpgradeStat): boolean {
+  const p = ensureWeaponBucket(meta, weaponId);
+  if (stat === 'piercePurchases') {
+    return p.piercePurchases >= META_CAP.pierce;
+  }
+  return p[stat] >= META_CAP.weaponDamageFireCrit;
+}
+
+function globalAtCap(meta: MetaState, stat: GlobalUpgradeStat): boolean {
   const g = meta.global;
-  if (stat === 'rerollPurchases' && g.rerollPurchases >= MAX_REROLL_PURCHASES) return false;
-  if (stat === 'revivePurchases' && g.revivePurchases >= MAX_REVIVE_PURCHASES) return false;
-  if (stat === 'bossDamagePurchases' && g.bossDamagePurchases >= MAX_BOSS_DAMAGE_PURCHASES) {
-    return false;
+  switch (stat) {
+    case 'rerollPurchases':
+      return g.rerollPurchases >= META_CAP.reroll;
+    case 'revivePurchases':
+      return g.revivePurchases >= META_CAP.revive;
+    case 'bossDamagePurchases':
+      return g.bossDamagePurchases >= META_CAP.boss;
+    case 'gatePotencyPurchases':
+      return g.gatePotencyPurchases >= META_CAP.gate;
+    case 'soulIncomePurchases':
+      return g.soulIncomePurchases >= META_CAP.soulIncome;
+    case 'chestCadencePurchases':
+      return g.chestCadencePurchases >= META_CAP.chest;
+    default:
+      return true;
   }
-  if (stat === 'gatePotencyPurchases' && g.gatePotencyPurchases >= MAX_GATE_POTENCY_PURCHASES) {
-    return false;
-  }
-  if (stat === 'dollarIncomePurchases' && g.dollarIncomePurchases >= MAX_DOLLAR_INCOME_PURCHASES) {
-    return false;
-  }
-  if (stat === 'chestCadencePurchases' && g.chestCadencePurchases >= MAX_CHEST_CADENCE_PURCHASES) {
-    return false;
-  }
-  const cost = globalUpgradeCost(stat, meta);
-  return cost > 0 && meta.dollars >= cost;
 }
 
-export function tryBuyCharacter(
+export function canIncrementCharacter(
   stat: CharacterUpgradeStat,
   meta: MetaState,
   characterId: CharacterId,
 ): boolean {
-  if (!canBuyCharacter(stat, meta, characterId)) return false;
+  if (characterAtCap(meta, characterId, stat)) return false;
   const cost = characterUpgradeCost(stat, meta, characterId);
-  const p = ensureCharacterBucket(meta, characterId);
-  meta.dollars -= cost;
-  p[stat] += 1;
-  return true;
+  return cost > 0 && meta.souls >= cost;
 }
 
-export function tryBuyWeapon(
+export function canIncrementWeapon(
   stat: WeaponUpgradeStat,
   meta: MetaState,
   weaponId: WeaponId,
 ): boolean {
-  if (!canBuyWeapon(stat, meta, weaponId)) return false;
+  if (weaponAtCap(meta, weaponId, stat)) return false;
   const cost = weaponUpgradeCost(stat, meta, weaponId);
-  const p = ensureWeaponBucket(meta, weaponId);
-  meta.dollars -= cost;
+  return cost > 0 && meta.souls >= cost;
+}
+
+export function canIncrementGlobal(stat: GlobalUpgradeStat, meta: MetaState): boolean {
+  if (globalAtCap(meta, stat)) return false;
+  const cost = globalUpgradeCost(stat, meta);
+  return cost > 0 && meta.souls >= cost;
+}
+
+export function canDecrementCharacter(
+  stat: CharacterUpgradeStat,
+  meta: MetaState,
+  characterId: CharacterId,
+): boolean {
+  return getCharacterUpgradeLevel(meta, characterId, stat) > 0;
+}
+
+export function canDecrementWeapon(
+  stat: WeaponUpgradeStat,
+  meta: MetaState,
+  weaponId: WeaponId,
+): boolean {
+  return getWeaponUpgradeLevel(meta, weaponId, stat) > 0;
+}
+
+export function canDecrementGlobal(stat: GlobalUpgradeStat, meta: MetaState): boolean {
+  return getGlobalUpgradeLevel(meta, stat) > 0;
+}
+
+export function tryIncrementCharacter(
+  stat: CharacterUpgradeStat,
+  meta: MetaState,
+  characterId: CharacterId,
+): boolean {
+  if (!canIncrementCharacter(stat, meta, characterId)) return false;
+  const cost = characterUpgradeCost(stat, meta, characterId);
+  const p = ensureCharacterBucket(meta, characterId);
+  meta.souls -= cost;
   p[stat] += 1;
   return true;
 }
 
-export function tryBuyGlobal(stat: GlobalUpgradeStat, meta: MetaState): boolean {
-  if (!canBuyGlobal(stat, meta)) return false;
+export function tryIncrementWeapon(
+  stat: WeaponUpgradeStat,
+  meta: MetaState,
+  weaponId: WeaponId,
+): boolean {
+  if (!canIncrementWeapon(stat, meta, weaponId)) return false;
+  const cost = weaponUpgradeCost(stat, meta, weaponId);
+  const p = ensureWeaponBucket(meta, weaponId);
+  meta.souls -= cost;
+  p[stat] += 1;
+  return true;
+}
+
+export function tryIncrementGlobal(stat: GlobalUpgradeStat, meta: MetaState): boolean {
+  if (!canIncrementGlobal(stat, meta)) return false;
   const cost = globalUpgradeCost(stat, meta);
-  meta.dollars -= cost;
+  meta.souls -= cost;
   meta.global[stat] += 1;
+  return true;
+}
+
+export function tryDecrementCharacter(
+  stat: CharacterUpgradeStat,
+  meta: MetaState,
+  characterId: CharacterId,
+): boolean {
+  if (!canDecrementCharacter(stat, meta, characterId)) return false;
+  const refund = characterRefundForTopLevel(stat, meta, characterId);
+  const p = ensureCharacterBucket(meta, characterId);
+  p[stat] -= 1;
+  meta.souls += refund;
+  return true;
+}
+
+export function tryDecrementWeapon(
+  stat: WeaponUpgradeStat,
+  meta: MetaState,
+  weaponId: WeaponId,
+): boolean {
+  if (!canDecrementWeapon(stat, meta, weaponId)) return false;
+  const refund = weaponRefundForTopLevel(stat, meta, weaponId);
+  const p = ensureWeaponBucket(meta, weaponId);
+  p[stat] -= 1;
+  meta.souls += refund;
+  return true;
+}
+
+export function tryDecrementGlobal(stat: GlobalUpgradeStat, meta: MetaState): boolean {
+  if (!canDecrementGlobal(stat, meta)) return false;
+  const refund = globalRefundForTopLevel(stat, meta);
+  meta.global[stat] -= 1;
+  meta.souls += refund;
   return true;
 }

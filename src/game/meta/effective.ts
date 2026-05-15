@@ -2,6 +2,7 @@ import { getCharacter } from '../characters/definitions';
 import type { CharacterDefinition, CharacterId } from '../characters/types';
 import { getWeapon } from '../weapons/definitions';
 import type { WeaponDefinition, WeaponId } from '../weapons/types';
+import { META_CAP } from './caps';
 import {
   ensureCharacterBucket,
   ensureWeaponBucket,
@@ -18,45 +19,36 @@ export function upgradeExpoCost(base: number, purchases: number): number {
   return Math.floor(base * Math.pow(UPGRADE_COST_GROWTH, purchases));
 }
 
-const MAX_CRIT_CHANCE_PURCHASES = 20;
-const MAX_PIERCE_PURCHASES = 2;
-const MAX_REROLL_PURCHASES = 25;
-const MAX_REVIVE_PURCHASES = 5;
-const MAX_BOSS_DAMAGE_PURCHASES = 25;
-const MAX_GATE_POTENCY_PURCHASES = 20;
-const MAX_DOLLAR_INCOME_PURCHASES = 15;
-const MAX_CHEST_CADENCE_PURCHASES = 12;
-
 export function effectiveCritChancePurchases(p: CharacterMetaPurchases): number {
-  return Math.min(p.critChancePurchases, MAX_CRIT_CHANCE_PURCHASES);
+  return Math.min(p.critChancePurchases, META_CAP.characterStat);
 }
 
 export function effectivePiercePurchases(p: WeaponMetaPurchases): number {
-  return Math.min(p.piercePurchases, MAX_PIERCE_PURCHASES);
+  return Math.min(p.piercePurchases, META_CAP.pierce);
 }
 
 export function cappedGlobalRerolls(g: GlobalMetaPurchases): number {
-  return Math.min(g.rerollPurchases, MAX_REROLL_PURCHASES);
+  return Math.min(g.rerollPurchases, META_CAP.reroll);
 }
 
 export function cappedGlobalRevives(g: GlobalMetaPurchases): number {
-  return Math.min(g.revivePurchases, MAX_REVIVE_PURCHASES);
+  return Math.min(g.revivePurchases, META_CAP.revive);
 }
 
 export function cappedBossDamagePurchases(g: GlobalMetaPurchases): number {
-  return Math.min(g.bossDamagePurchases, MAX_BOSS_DAMAGE_PURCHASES);
+  return Math.min(g.bossDamagePurchases, META_CAP.boss);
 }
 
 export function cappedGatePotencyPurchases(g: GlobalMetaPurchases): number {
-  return Math.min(g.gatePotencyPurchases, MAX_GATE_POTENCY_PURCHASES);
+  return Math.min(g.gatePotencyPurchases, META_CAP.gate);
 }
 
-export function cappedDollarIncomePurchases(g: GlobalMetaPurchases): number {
-  return Math.min(g.dollarIncomePurchases, MAX_DOLLAR_INCOME_PURCHASES);
+export function cappedSoulIncomePurchases(g: GlobalMetaPurchases): number {
+  return Math.min(g.soulIncomePurchases, META_CAP.soulIncome);
 }
 
 export function cappedChestCadencePurchases(g: GlobalMetaPurchases): number {
-  return Math.min(g.chestCadencePurchases, MAX_CHEST_CADENCE_PURCHASES);
+  return Math.min(g.chestCadencePurchases, META_CAP.chest);
 }
 
 export function getEffectiveCharacter(id: CharacterId, meta: MetaState): CharacterDefinition {
@@ -65,10 +57,10 @@ export function getEffectiveCharacter(id: CharacterId, meta: MetaState): Charact
   const critPurch = effectiveCritChancePurchases(p);
   return {
     ...base,
-    maxHealth: base.maxHealth + 5 * p.maxHealthPurchases,
+    maxHealth: base.maxHealth + 6 * p.maxHealthPurchases,
     moveSpeed: base.moveSpeed + 6 * p.moveSpeedPurchases,
     defense: base.defense + 1 * p.defensePurchases,
-    critChance: Math.min(0.5, base.critChance + 0.01 * critPurch),
+    critChance: Math.min(0.5, base.critChance + 0.02 * critPurch),
   };
 }
 
@@ -76,7 +68,7 @@ export function getEffectiveWeapon(id: WeaponId, meta: MetaState): WeaponDefinit
   const base = getWeapon(id);
   const p = ensureWeaponBucket(meta, id);
   const pierceExtra = effectivePiercePurchases(p);
-  const rateMult = 1 + 0.03 * p.fireRatePurchases;
+  const rateMult = 1 + 0.045 * p.fireRatePurchases;
 
   if (base.fireMode === 'burst') {
     const between = Math.max(18, Math.floor((base.burstBetweenShotsMs ?? 60) / rateMult));
@@ -84,7 +76,7 @@ export function getEffectiveWeapon(id: WeaponId, meta: MetaState): WeaponDefinit
     return {
       ...base,
       projectileDamage: base.projectileDamage + p.damagePurchases,
-      critMultiplier: base.critMultiplier + 0.05 * p.critMultPurchases,
+      critMultiplier: base.critMultiplier + 0.06 * p.critMultPurchases,
       pierceCount: base.pierceCount + pierceExtra,
       burstBetweenShotsMs: between,
       burstCooldownMs: cool,
@@ -95,7 +87,7 @@ export function getEffectiveWeapon(id: WeaponId, meta: MetaState): WeaponDefinit
     ...base,
     roundsPerSecond: base.roundsPerSecond * rateMult,
     projectileDamage: base.projectileDamage + p.damagePurchases,
-    critMultiplier: base.critMultiplier + 0.05 * p.critMultPurchases,
+    critMultiplier: base.critMultiplier + 0.06 * p.critMultPurchases,
     pierceCount: base.pierceCount + pierceExtra,
   };
 }
@@ -103,24 +95,24 @@ export function getEffectiveWeapon(id: WeaponId, meta: MetaState): WeaponDefinit
 /** Multiplier on bullet and power damage vs bosses only. */
 export function getBossOutgoingDamageMult(meta: MetaState): number {
   const n = cappedBossDamagePurchases(meta.global);
-  return Math.pow(1.05, n);
+  return Math.pow(1.057, n);
 }
 
-export function getDollarIncomeMult(meta: MetaState): number {
-  const n = cappedDollarIncomePurchases(meta.global);
+export function getSoulIncomeMult(meta: MetaState): number {
+  const n = cappedSoulIncomePurchases(meta.global);
   return 1 + 0.05 * n;
 }
 
-/** Heal and weapon fire-rate gate percents are multiplied by this (1 + 0.04 per purchase). */
+/** Heal and weapon fire-rate gate percents are multiplied by this. */
 export function getGatePotencyMult(meta: MetaState): number {
   const n = cappedGatePotencyPurchases(meta.global);
-  return 1 + 0.04 * n;
+  return 1 + 0.07 * n;
 }
 
 /** Multiplies sampled chest spawn delay (lower = faster chests). */
 export function getChestSpawnDelayMult(meta: MetaState): number {
   const n = cappedChestCadencePurchases(meta.global);
-  return Math.max(0.52, 1 - 0.04 * n);
+  return Math.max(0.52, 1 - 0.048 * n);
 }
 
 export function getInitialPowerRerolls(meta: MetaState): number {

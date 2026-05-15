@@ -34,6 +34,11 @@ export interface BossDefeatedPayload {
 export interface EnemyUpdateOpts {
   /** When null, trash spawning is paused (boss fight). */
   readonly spawnEnemyId: EnemyId | null;
+  /**
+   * Trash spawn rate vs wave-1 baseline: interval rolls are divided by this value.
+   * Omit or pass 1 for legacy pacing.
+   */
+  readonly trashSpawnFrequencyMult?: number;
   readonly playerX: number;
   readonly playerY: number;
 }
@@ -65,15 +70,17 @@ export class EnemyManager {
   private bossOutgoingDamageMult = 1;
 
   constructor(private readonly scene: Phaser.Scene) {
-    this.rollNextSpawnInterval();
+    this.rollNextSpawnInterval(1);
   }
 
   setBossOutgoingDamageMult(mult: number): void {
     this.bossOutgoingDamageMult = Math.max(1, mult);
   }
 
-  private rollNextSpawnInterval(): void {
-    this.nextSpawnMs = Phaser.Math.FloatBetween(0.72, 1.35) * 1000;
+  private rollNextSpawnInterval(trashSpawnFrequencyMult: number): void {
+    const mult = Math.max(0.2, trashSpawnFrequencyMult);
+    const baseMs = Phaser.Math.FloatBetween(0.72, 1.35) * 1000;
+    this.nextSpawnMs = baseMs / mult;
     this.spawnAccumMs = 0;
   }
 
@@ -130,10 +137,11 @@ export class EnemyManager {
     const chaseY = enemyChaseThresholdY();
 
     if (opts.spawnEnemyId !== null) {
+      const freqMult = opts.trashSpawnFrequencyMult ?? 1;
       this.spawnAccumMs += deltaMs;
       if (this.spawnAccumMs >= this.nextSpawnMs) {
         this.spawnEnemy(getEnemy(opts.spawnEnemyId));
-        this.rollNextSpawnInterval();
+        this.rollNextSpawnInterval(freqMult);
       }
     }
 

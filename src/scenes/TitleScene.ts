@@ -52,7 +52,7 @@ const INSTRUCTIONS =
   '\n' +
   'Powers include lane beams (Kamahaha briefly roots you), lightning chains, Time stone slows on-screen enemies, Soul feast heals on kills, and Thorns when contact costs HP.\n' +
   '\n' +
-  'Kills earn dollars (top-right). Spend them in the Store for permanent upgrades.\n' +
+  'Kills earn Souls (top-right). Reallocate them in the Store anytime — arrows adjust levels; refunds are instant.\n' +
   '\n' +
   'Pause: top-left button or ESC.';
 
@@ -113,7 +113,7 @@ function formatTitleGlobalTiers(meta: MetaState): string {
     `Revive ${t(getGlobalUpgradeLevel(meta, 'revivePurchases'), getGlobalUpgradeCap('revivePurchases'))}`,
     `Boss ${t(getGlobalUpgradeLevel(meta, 'bossDamagePurchases'), getGlobalUpgradeCap('bossDamagePurchases'))}`,
     `Gate ${t(getGlobalUpgradeLevel(meta, 'gatePotencyPurchases'), getGlobalUpgradeCap('gatePotencyPurchases'))}`,
-    `Cash ${t(getGlobalUpgradeLevel(meta, 'dollarIncomePurchases'), getGlobalUpgradeCap('dollarIncomePurchases'))}`,
+    `Souls ${t(getGlobalUpgradeLevel(meta, 'soulIncomePurchases'), getGlobalUpgradeCap('soulIncomePurchases'))}`,
     `Chest ${t(getGlobalUpgradeLevel(meta, 'chestCadencePurchases'), getGlobalUpgradeCap('chestCadencePurchases'))}`,
   ].join(' · ');
 }
@@ -171,7 +171,7 @@ export class TitleScene extends Phaser.Scene {
     const cx = GAME_WIDTH / 2;
 
     this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.152, `Bank $${meta.dollars}`, {
+      .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.152, `Souls ${meta.souls}`, {
         fontFamily: FONT,
         fontSize: '20px',
         color: '#86efac',

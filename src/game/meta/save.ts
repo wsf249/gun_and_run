@@ -2,9 +2,10 @@ import { ALL_CHARACTER_IDS } from '../characters/definitions';
 import type { CharacterId } from '../characters/types';
 import { ALL_WEAPON_IDS } from '../weapons/definitions';
 import type { WeaponId } from '../weapons/types';
+import { META_CAP } from './caps';
 
 export const META_STORAGE_KEY = 'gun-and-run-meta-v1';
-export const META_SCHEMA_VERSION = 1;
+export const META_SCHEMA_VERSION = 2;
 
 export interface CharacterMetaPurchases {
   maxHealthPurchases: number;
@@ -25,13 +26,13 @@ export interface GlobalMetaPurchases {
   revivePurchases: number;
   bossDamagePurchases: number;
   gatePotencyPurchases: number;
-  dollarIncomePurchases: number;
+  soulIncomePurchases: number;
   chestCadencePurchases: number;
 }
 
 export interface MetaState {
   schemaVersion: number;
-  dollars: number;
+  souls: number;
   character: Partial<Record<CharacterId, CharacterMetaPurchases>>;
   weapon: Partial<Record<WeaponId, WeaponMetaPurchases>>;
   global: GlobalMetaPurchases;
@@ -61,7 +62,7 @@ function defaultGlobal(): GlobalMetaPurchases {
     revivePurchases: 0,
     bossDamagePurchases: 0,
     gatePotencyPurchases: 0,
-    dollarIncomePurchases: 0,
+    soulIncomePurchases: 0,
     chestCadencePurchases: 0,
   };
 }
@@ -69,7 +70,7 @@ function defaultGlobal(): GlobalMetaPurchases {
 export function createDefaultMeta(): MetaState {
   return {
     schemaVersion: META_SCHEMA_VERSION,
-    dollars: 0,
+    souls: 0,
     character: {},
     weapon: {},
     global: defaultGlobal(),
@@ -94,43 +95,57 @@ export function ensureWeaponBucket(meta: MetaState, id: WeaponId): WeaponMetaPur
   return row;
 }
 
-function normalizeMeta(parsed: MetaState): MetaState {
+/** Legacy v1 JSON before `soulIncomePurchases` rename. */
+type LegacyGlobal = Partial<GlobalMetaPurchases> & { dollarIncomePurchases?: number };
+
+function normalizeMeta(parsed: unknown): MetaState {
   const out = createDefaultMeta();
-  out.dollars = Math.max(0, Math.floor(Number(parsed.dollars) || 0));
+  const root = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+
+  const soulsRaw = root.souls ?? root.dollars;
+  out.souls = Math.max(0, Math.floor(Number(soulsRaw) || 0));
+
+  const c = META_CAP.characterStat;
+  const wdc = META_CAP.weaponDamageFireCrit;
+  const pierce = META_CAP.pierce;
 
   for (const id of ALL_CHARACTER_IDS) {
-    const src = parsed.character?.[id];
+    const src = (root.character as Record<string, unknown> | undefined)?.[id];
     if (src && typeof src === 'object') {
+      const s = src as Record<string, unknown>;
       out.character[id] = {
-        maxHealthPurchases: clampInt(src.maxHealthPurchases, 0, 500),
-        moveSpeedPurchases: clampInt(src.moveSpeedPurchases, 0, 500),
-        defensePurchases: clampInt(src.defensePurchases, 0, 500),
-        critChancePurchases: clampInt(src.critChancePurchases, 0, 20),
+        maxHealthPurchases: clampInt(s.maxHealthPurchases, 0, c),
+        moveSpeedPurchases: clampInt(s.moveSpeedPurchases, 0, c),
+        defensePurchases: clampInt(s.defensePurchases, 0, c),
+        critChancePurchases: clampInt(s.critChancePurchases, 0, c),
       };
     }
   }
 
   for (const id of ALL_WEAPON_IDS) {
-    const src = parsed.weapon?.[id];
+    const src = (root.weapon as Record<string, unknown> | undefined)?.[id];
     if (src && typeof src === 'object') {
+      const s = src as Record<string, unknown>;
       out.weapon[id] = {
-        damagePurchases: clampInt(src.damagePurchases, 0, 500),
-        fireRatePurchases: clampInt(src.fireRatePurchases, 0, 500),
-        critMultPurchases: clampInt(src.critMultPurchases, 0, 500),
-        piercePurchases: clampInt(src.piercePurchases, 0, 2),
+        damagePurchases: clampInt(s.damagePurchases, 0, wdc),
+        fireRatePurchases: clampInt(s.fireRatePurchases, 0, wdc),
+        critMultPurchases: clampInt(s.critMultPurchases, 0, wdc),
+        piercePurchases: clampInt(s.piercePurchases, 0, pierce),
       };
     }
   }
 
-  const g = parsed.global;
+  const g = root.global;
   if (g && typeof g === 'object') {
+    const lg = g as LegacyGlobal;
+    const income = lg.soulIncomePurchases ?? lg.dollarIncomePurchases;
     out.global = {
-      rerollPurchases: clampInt(g.rerollPurchases, 0, 25),
-      revivePurchases: clampInt(g.revivePurchases, 0, 5),
-      bossDamagePurchases: clampInt(g.bossDamagePurchases, 0, 25),
-      gatePotencyPurchases: clampInt(g.gatePotencyPurchases, 0, 20),
-      dollarIncomePurchases: clampInt(g.dollarIncomePurchases, 0, 15),
-      chestCadencePurchases: clampInt(g.chestCadencePurchases, 0, 12),
+      rerollPurchases: clampInt(lg.rerollPurchases, 0, META_CAP.reroll),
+      revivePurchases: clampInt(lg.revivePurchases, 0, META_CAP.revive),
+      bossDamagePurchases: clampInt(lg.bossDamagePurchases, 0, META_CAP.boss),
+      gatePotencyPurchases: clampInt(lg.gatePotencyPurchases, 0, META_CAP.gate),
+      soulIncomePurchases: clampInt(income, 0, META_CAP.soulIncome),
+      chestCadencePurchases: clampInt(lg.chestCadencePurchases, 0, META_CAP.chest),
     };
   }
 
@@ -152,10 +167,7 @@ export function loadMeta(): MetaState {
       return createDefaultMeta();
     }
     const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object') {
-      return createDefaultMeta();
-    }
-    return normalizeMeta(parsed as MetaState);
+    return normalizeMeta(parsed);
   } catch {
     return createDefaultMeta();
   }

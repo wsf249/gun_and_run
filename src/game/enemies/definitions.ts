@@ -4,7 +4,7 @@ import type { EnemyDefinition, EnemyId } from './types';
 export const WALKER_BASIC: EnemyDefinition = {
   id: 'walker_basic',
   displayName: 'Walker',
-  maxHealth: 69,
+  maxHealth: 67,
   moveSpeed: 195,
   defense: 0,
   attack: 22,
@@ -21,7 +21,7 @@ export const WALKER_BASIC: EnemyDefinition = {
 export const RUNNER_SWARM: EnemyDefinition = {
   id: 'runner_swarm',
   displayName: 'Runner',
-  maxHealth: 50,
+  maxHealth: 62,
   moveSpeed: 265,
   defense: 0,
   attack: 18,
@@ -55,7 +55,7 @@ export const BRUISER: EnemyDefinition = {
 export const WALKER_JUMPER: EnemyDefinition = {
   id: 'walker_jumper',
   displayName: 'Walker',
-  maxHealth: 69,
+  maxHealth: 82,
   moveSpeed: 195,
   defense: 0,
   attack: 22,
@@ -73,7 +73,7 @@ export const WALKER_JUMPER: EnemyDefinition = {
 export const SIDEWINDER: EnemyDefinition = {
   id: 'sidewinder',
   displayName: 'Sidewinder',
-  maxHealth: 72,
+  maxHealth: 90,
   moveSpeed: 200,
   defense: 0,
   attack: 24,
@@ -211,8 +211,21 @@ export function getTrashEnemyIdForWave(waveIndex1Based: number): EnemyId {
   return TRASH_BY_WAVE[idx]!;
 }
 
-/** Trash kills pay $1–$5 by wave tier; non-trash returns null. */
-export function getTrashKillDollarAmount(enemyId: EnemyId): number | null {
+/**
+ * Per-wave trash spawn rate vs wave-1 baseline (shorter between-spawn intervals).
+ * Tuned with trash **maxHealth** so STATS **Spawn ÷ (gun + est. power)** rises each wave
+ * while wave 3 (bruiser) stays **~1.04** — bruiser uses a low mult vs its large HP pool.
+ * Index matches `getTrashEnemyIdForWave` wave 1…5.
+ */
+export const TRASH_SPAWN_FREQ_MULT_BY_WAVE: readonly number[] = [1.0, 1.58, 0.72, 2.5, 3.3];
+
+export function getTrashSpawnFrequencyMult(waveIndex1Based: number): number {
+  const w = Math.min(5, Math.max(1, waveIndex1Based));
+  return TRASH_SPAWN_FREQ_MULT_BY_WAVE[w - 1] ?? 1;
+}
+
+/** Trash kills pay 1–5 Souls by wave tier; non-trash returns null. */
+export function getTrashKillSoulAmount(enemyId: EnemyId): number | null {
   const idx = TRASH_BY_WAVE.indexOf(enemyId);
   return idx >= 0 ? idx + 1 : null;
 }
