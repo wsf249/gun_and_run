@@ -14,8 +14,15 @@ export const ROAD_BOTTOM_Y = GAME_HEIGHT;
 /** Player anchor Y (feet line). */
 export const PLAYER_Y = ROAD_BOTTOM_Y - 24;
 
-/** Player hitbox half-width (placeholder footprint for future sprite). */
+/** Player hitbox half-width (lane clamp + touch overlap vs `PLAYER_DISPLAY_*`). */
 export const PLAYER_HALF_WIDTH = 28;
+
+/** On-screen soldier sprite size (game pixels); source PNG can be any resolution. */
+export const PLAYER_DISPLAY_WIDTH = PLAYER_HALF_WIDTH * 2;
+export const PLAYER_DISPLAY_HEIGHT = 48;
+
+/** Soldier idle ↔ walk texture swap period while movement input is active (ms). */
+export const SOLDIER_MOVE_TEXTURE_FLIP_MS = 180;
 
 /** Lane divider color (subtle). */
 export const LANE_LINE_COLOR = 0x3d4a5c;

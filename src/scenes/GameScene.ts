@@ -20,7 +20,12 @@ import {
   ALL_CHARACTER_IDS,
   DEFAULT_CHARACTER_ID,
 } from '../game/characters/definitions';
-import { addPlayerShape, getMuzzleOffsetFromPlayer } from '../game/characters/playerShape';
+import {
+  addPlayerVisual,
+  applySoldierMovementTexture,
+  getMuzzleOffsetFromPlayer,
+  type PlayerVisual,
+} from '../game/characters/playerShape';
 import type { CharacterDefinition, CharacterId } from '../game/characters/types';
 import {
   getBossDefinitionForMinute,
@@ -110,7 +115,7 @@ function isWeaponId(value: string): value is WeaponId {
 }
 
 export class GameScene extends Phaser.Scene {
-  private player!: Phaser.GameObjects.Shape;
+  private player!: PlayerVisual;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keyA!: Phaser.Input.Keyboard.Key;
   private keyD!: Phaser.Input.Keyboard.Key;
@@ -190,7 +195,7 @@ export class GameScene extends Phaser.Scene {
     this.drawLaneMarkers();
 
     const cx = GAME_WIDTH / 2;
-    this.player = addPlayerShape(this, this.selectedCharacterId, cx, PLAYER_Y);
+    this.player = addPlayerVisual(this, this.selectedCharacterId, cx, PLAYER_Y);
 
     this.metaState = loadMeta();
     this.revivesRemaining = getRevivesPerRun(this.metaState);
@@ -355,7 +360,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
     if (this.runOutcome !== 'playing') {
       return;
     }
@@ -413,6 +418,21 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.player.x = Phaser.Math.Clamp(this.player.x, minX, maxX);
+
+    const moveLocked = this.powerRuntime.isKamahahaMovementLocked();
+    const keyMoveIntent =
+      !moveLocked &&
+      (this.keyA.isDown || this.cursors.left.isDown || this.keyD.isDown || this.cursors.right.isDown);
+    const pointerWorldX = this.input.activePointer.worldX;
+    const pointerMoveIntent =
+      !moveLocked &&
+      this.pointerActive &&
+      this.input.activePointer.isDown &&
+      Math.abs(pointerWorldX - this.player.x) > 4;
+
+    if (this.selectedCharacterId === 'starter' && this.player instanceof Phaser.GameObjects.Image) {
+      applySoldierMovementTexture(this.player, keyMoveIntent || pointerMoveIntent, time);
+    }
 
     this.gateManager.update(delta, this.player.getBounds());
     this.chestManager.update(delta);

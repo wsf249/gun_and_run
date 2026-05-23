@@ -1,13 +1,14 @@
 # Asset layout (commission-ready)
 
-Place final pixel art here and load from Phaser with stable keys (e.g. `this.load.image('hero', 'assets/sprites/player/hero_soldier.png')`).
+Place final pixel art here. Phaser loads from stable keys defined in [`src/game/assets.ts`](../../src/game/assets.ts) (e.g. `HERO_SOLDIER_TEXTURE_KEY` + `HERO_SOLDIER_IMAGE_URL`). Preload runs in [`src/scenes/BootScene.ts`](../../src/scenes/BootScene.ts) before the title menu.
 
 ## `sprites/player/`
 
 | File (suggested) | Use |
 |------------------|-----|
 | `hero_placeholder.png` | v0.01 optional; code may use shapes instead |
-| `hero_soldier.png` | Soldier character |
+| `hero_soldier.png` | **Soldier** (`starter`): loaded as `hero_soldier`; **NEAREST** filter for pixel art. **Anchor:** feet at **bottom-center** of the PNG; game places that point on `PLAYER_Y`. **On-screen size** is fixed in code (`PLAYER_DISPLAY_WIDTH` × `PLAYER_DISPLAY_HEIGHT` in [`src/game/constants.ts`](../../src/game/constants.ts)), not tied to file resolution — swap art without changing lane math. |
+| `hero_soldier_walk.png` | **Soldier walk frame:** `hero_soldier_walk`; alternates with idle on a timer while movement keys / pointer-drag intent is active (see `SOLDIER_MOVE_TEXTURE_FLIP_MS`). |
 | `hero_sniper.png` | Sniper character |
 
 ## `sprites/environment/`

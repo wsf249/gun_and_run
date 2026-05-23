@@ -2,7 +2,7 @@
 
 This file is **handoff context for AI assistants and humans**. Update it when the stack, folder layout, or product scope changes in ways that would confuse the next session.
 
-**Last updated:** 2026-05-13
+**Last updated:** 2026-05-22
 
 ---
 
@@ -17,9 +17,9 @@ This file is **handoff context for AI assistants and humans**. Update it when th
 ## Implemented now (browser v0.01+)
 
 - **Stack:** Vite 6, TypeScript 5.6, Phaser 3.80.  
-- **Flow:** `TitleScene` → `GameScene` or **`StoreScene`** (scene keys `'Title'`, `'Game'`, `'Store'`).  
+- **Flow:** **`BootScene`** (`'Boot'`) preloads shared textures (e.g. soldier PNG) then starts **`TitleScene`** → `GameScene` or **`StoreScene`** (scene keys `'Boot'`, `'Title'`, `'Game'`, `'Store'`).  
 - **Title / start menu (`TitleScene`):** game title; **character** and **weapon** carousel rows (`ALL_CHARACTER_IDS` / `ALL_WEAPON_IDS`, pointer + large arrow hit areas); word-wrapped **how to play** copy scoped to what the build actually does; **Start Game** (pointer + Enter/Space). Passes `characterId` / `weaponId` into `GameScene` via `scene.start('Game', data)` → `GameScene.init`. **Agents:** when you add player-facing mechanics (controls, gates, chests, meta, etc.), refresh the instructions block and selectors so the menu stays accurate.  
-- **Game:** full-height perspective road (no sky); shoulder fill outside road; lane divider lines; **teal** player placeholder; input as before. **5-minute run progression:** HUD timer is **run time** — it advances only while actively playing (not during pause, power draft, death, or win). At **1:00–5:00** on that timer, a **boss** for that minute is **queued** and spawns when no other boss is alive (`boss_wave_1` … `boss_wave_5`). **Trash enemy spawns pause** while any boss lives; **gates and chests keep spawning**. After each boss **except the fifth**, if any power is below max level, the same **3-choice draft** as chests opens (paused); defeating the **fifth boss** shows **You won** → Back to menu. **HP ≤ 0** shows **You died** → Back to menu (returns loadout via `scene.start('Title', data)`).  
+- **Game:** full-height perspective road (no sky); shoulder fill outside road; lane divider lines; **Soldier** uses [`public/assets/sprites/player/hero_soldier.png`](public/assets/sprites/player/hero_soldier.png) (idle) and [`public/assets/sprites/player/hero_soldier_walk.png`](public/assets/sprites/player/hero_soldier_walk.png), alternating on a short timer while left/right input (or pointer offset toward a target) is active; fixed on-screen size via `PLAYER_DISPLAY_WIDTH` / `PLAYER_DISPLAY_HEIGHT`; **Ranger** remains a vector triangle. Input as before. **5-minute run progression:** HUD timer is **run time** — it advances only while actively playing (not during pause, power draft, death, or win). At **1:00–5:00** on that timer, a **boss** for that minute is **queued** and spawns when no other boss is alive (`boss_wave_1` … `boss_wave_5`). **Trash enemy spawns pause** while any boss lives; **gates and chests keep spawning**. After each boss **except the fifth**, if any power is below max level, the same **3-choice draft** as chests opens (paused); defeating the **fifth boss** shows **You won** → Back to menu. **HP ≤ 0** shows **You died** → Back to menu (returns loadout via `scene.start('Title', data)`).  
 - **Characters:** data-driven **`CharacterDefinition`** / `CharacterId` ([`src/game/characters/`](src/game/characters/)); default **`starter`** — `maxHealth`, `moveSpeed`, flat **`defense`** (armor), **`critChance`** (0–1). No character damage multiplier.
 - **Combat helpers:** [`src/game/combat/damage.ts`](src/game/combat/damage.ts) — **`applyFlatArmor`** (`max(1, floor(raw - armor))` on touch hits); **`rollProjectileDamage`** (crit roll at spawn using character crit chance × weapon **`critMultiplier`**).
 - **Enemies:** **`EnemyDefinition`** / `EnemyId` — **health**, **speed**, **defense**, **attack**; optional **`tags`** (`boss`, `jumper`) and **`bossMinuteIndex`** (1–5) for bosses. Touch and bullets use `applyFlatArmor` as before. **Trash waves** after each boss kill: orange walkers → red runners → purple bruisers → orange jumpers → **lime sidewinders** (lateral sine weave while descending; stats/colors in [`definitions.ts`](src/game/enemies/definitions.ts)). **Trash spawn rate** uses per-wave **`getTrashSpawnFrequencyMult`** (bruiser tier slower than a naive linear ramp; later waves faster — see `TRASH_SPAWN_FREQ_MULT_BY_WAVE` in definitions). **Jumpers** sidestep on **bullet** hits only (cooldown), with **`lateralT` resynced** after each hop. **No off-screen despawn** — grunts and bosses stay until killed. Spawn on-road; **lateralT** path then **chase** in bottom 10%; aim-assist in bottom 15%.
@@ -47,8 +47,10 @@ From repo root (Windows PowerShell often needs `;` instead of `&&` between comma
 
 | Path | Role |
 |------|------|
-| [`src/main.ts`](src/main.ts) | Phaser bootstrap, scale (`FIT` + `CENTER_BOTH`), scene list |
-| [`src/game/constants.ts`](src/game/constants.ts) | `GAME_WIDTH`/`HEIGHT` (720×1280); road geometry; **no** player max HP / move speed (those live on `CharacterDefinition`) |
+| [`src/main.ts`](src/main.ts) | Phaser bootstrap, scale (`FIT` + `NO_CENTER`), scene list (`Boot` → `Title` → …) |
+| [`src/scenes/BootScene.ts`](src/scenes/BootScene.ts) | First scene: preload shared images (soldier), **NEAREST** filter, then `start('Title')` |
+| [`src/game/assets.ts`](src/game/assets.ts) | Texture keys + `public/` URLs for preload |
+| [`src/game/constants.ts`](src/game/constants.ts) | `GAME_WIDTH`/`HEIGHT` (720×1280); road geometry; `PLAYER_Y`, `PLAYER_HALF_WIDTH`, **`PLAYER_DISPLAY_WIDTH`/`PLAYER_DISPLAY_HEIGHT`** (soldier sprite on-screen size); **no** player max HP / move speed (those live on `CharacterDefinition`) |
 | [`src/scenes/TitleScene.ts`](src/scenes/TitleScene.ts) | Start menu (loadout carousels + instructions + Start Game) |
 | [`src/scenes/StoreScene.ts`](src/scenes/StoreScene.ts) | Meta upgrade store (Souls, respec arrows + slot rows per stat) |
 | [`src/game/characters/types.ts`](src/game/characters/types.ts) | `CharacterId`, `CharacterDefinition` |

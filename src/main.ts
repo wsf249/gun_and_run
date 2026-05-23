@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from './game/constants';
+import { BootScene } from './scenes/BootScene';
 import { GameScene } from './scenes/GameScene';
 import { StoreScene } from './scenes/StoreScene';
 import { TitleScene } from './scenes/TitleScene';
@@ -29,7 +30,7 @@ const config: Phaser.Types.Core.GameConfig = {
     keyboard: true,
     activePointers: 3,
   },
-  scene: [TitleScene, GameScene, StoreScene],
+  scene: [BootScene, TitleScene, GameScene, StoreScene],
 };
 
 const game = new Phaser.Game(config);
